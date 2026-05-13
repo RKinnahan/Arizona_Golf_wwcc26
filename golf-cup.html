@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>The Cup · Match Scoreboard</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#080e08;font-family:Georgia,serif;color:#e8e0d0;min-height:100vh}
+  input[type=number]{-moz-appearance:textfield}
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  button{font-family:Georgia,serif;cursor:pointer}
+  ::-webkit-scrollbar{height:4px;width:4px;background:#0a120a}
+  ::-webkit-scrollbar-thumb{background:#3a4a3a;border-radius:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- React + Babel (no build step needed) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+<!-- Firebase v9 compat (CDN, no build step) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ═══════════════════════════════════════════════════════════════════
+// ⚙️  FIREBASE CONFIG — replace with your own project values
+//     1. Go to https://console.firebase.google.com
+//     2. Create a project → Add a web app → copy the config below
+//     3. In the Firebase console: Build → Realtime Database → Create database
+//        Choose any region, start in TEST MODE (or add auth rules later)
+// ═══════════════════════════════════════════════════════════════════
+const FIREBASE_CONFIG = {
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT.firebaseapp.com",
+  databaseURL:       "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId:         "YOUR_PROJECT",
+  storageBucket:     "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID",
+};
+const DB_PATH = "golf_cup_2025"; // key inside your Realtime Database
+
+// ─── PLAYERS ────────────────────────────────────────────────────
+const PLAYERS = {
+  rick:    { name:"Rick Kinnahan",  short:"Rick",    hcp:6.8,  team:"B" },
+  tommy:   { name:"Tommy Lee",      short:"Tommy",   hcp:15.8, team:"B" },
+  gary:    { name:"Gary Lindsay",   short:"Gary",    hcp:20.0, team:"B" },
+  morri:   { name:"Brian Morrison", short:"B.Morr",  hcp:22.4, team:"B" },
+  pfeifer: { name:"Brian Pfeifer",  short:"Pfeifer", hcp:10.8, team:"A" },
+  ryan:    { name:"Ryan Ross",      short:"Ryan",    hcp:14.5, team:"A" },
+  rukus:   { name:"Rukus Esi",      short:"Rukus",   hcp:17.3, team:"A" },
+  taimour: { name:"Taimour Raja",   short:"Taimour", hcp:22.6, team:"A" },
+};
+const TEAM_A = { name:"TEAM CACTUS",        short:"CACTUS", emoji:"🌵", color:"#5cb85c", bg:"rgba(50,120,50,0.35)" };
+const TEAM_B = { name:"TEAM CHILI PEPPERS", short:"CHILI",  emoji:"🌶️", color:"#e05a5a", bg:"rgba(120,40,40,0.35)" };
+
+// ─── COURSES ────────────────────────────────────────────────────
+const COURSES = {
+  wildfire: {
+    name:"Wildfire Golf Club", subtitle:"Faldo Course · Phoenix, AZ", par:71,
+    holes:[
+      {h:1,par:4,hcp:7},{h:2,par:4,hcp:5},{h:3,par:3,hcp:17},{h:4,par:4,hcp:1},{h:5,par:4,hcp:9},
+      {h:6,par:4,hcp:13},{h:7,par:3,hcp:15},{h:8,par:4,hcp:11},{h:9,par:5,hcp:3},
+      {h:10,par:4,hcp:8},{h:11,par:5,hcp:4},{h:12,par:4,hcp:6},{h:13,par:4,hcp:16},{h:14,par:3,hcp:14},
+      {h:15,par:5,hcp:2},{h:16,par:4,hcp:12},{h:17,par:3,hcp:18},{h:18,par:4,hcp:10},
+    ],
+  },
+  wekopa: {
+    name:"We-Ko-Pa Golf Club", subtitle:"Saguaro Course · Fort McDowell, AZ", par:71,
+    holes:[
+      {h:1,par:4,hcp:5},{h:2,par:4,hcp:11},{h:3,par:4,hcp:9},{h:4,par:5,hcp:1},{h:5,par:3,hcp:15},
+      {h:6,par:4,hcp:7},{h:7,par:4,hcp:13},{h:8,par:5,hcp:3},{h:9,par:3,hcp:17},
+      {h:10,par:4,hcp:14},{h:11,par:3,hcp:18},{h:12,par:4,hcp:6},{h:13,par:4,hcp:8},{h:14,par:5,hcp:2},
+      {h:15,par:3,hcp:16},{h:16,par:4,hcp:12},{h:17,par:4,hcp:10},{h:18,par:4,hcp:4},
+    ],
+  },
+  grayhawk: {
+    name:"Grayhawk Golf Club", subtitle:"Raptor Course · Scottsdale, AZ", par:72,
+    holes:[
+      {h:1,par:4,hcp:10},{h:2,par:4,hcp:16},{h:3,par:4,hcp:4},{h:4,par:5,hcp:2},{h:5,par:3,hcp:14},
+      {h:6,par:4,hcp:12},{h:7,par:5,hcp:8},{h:8,par:3,hcp:18},{h:9,par:4,hcp:6},
+      {h:10,par:4,hcp:9},{h:11,par:5,hcp:1},{h:12,par:4,hcp:5},{h:13,par:3,hcp:7},{h:14,par:4,hcp:13},
+      {h:15,par:4,hcp:11},{h:16,par:3,hcp:17},{h:17,par:4,hcp:15},{h:18,par:5,hcp:3},
+    ],
+  },
+};
+
+// ─── POPS ───────────────────────────────────────────────────────
+function calcPops(playerKeys, courseHoles, allowance=0.90) {
+  const minHcp = Math.min(...playerKeys.map(k => PLAYERS[k].hcp));
+  const res = {};
+  playerKeys.forEach(k => {
+    const diff = Math.round((PLAYERS[k].hcp - minHcp) * allowance);
+    res[k] = courseHoles.map(hole =>
+      diff <= 0 ? 0 : diff <= 18 ? (hole.hcp <= diff ? 1 : 0) : (hole.hcp <= diff-18 ? 2 : 1)
+    );
+  });
+  return res;
+}
+
+// ─── MATCH PAIRINGS ─────────────────────────────────────────────
+const MATCH_PAIRINGS = {
+  r1m1:   { sideA:["pfeifer","taimour"], sideB:["rick","morri"],  type:"pairs"   },
+  r1m2:   { sideA:["ryan","rukus"],      sideB:["tommy","gary"],  type:"pairs"   },
+  r2m1:   { sideA:["pfeifer","rukus"],   sideB:["rick","gary"],   type:"pairs"   },
+  r2m2:   { sideA:["ryan","taimour"],    sideB:["tommy","morri"], type:"pairs"   },
+  r3four: { sideA:["pfeifer","taimour"], sideB:["rick","morri"],  type:"pairs"   },
+  r3s1:   { sideA:["ryan"],             sideB:["tommy"],          type:"singles" },
+  r3s2:   { sideA:["rukus"],            sideB:["gary"],           type:"singles" },
+  r4m1:   { sideA:["ryan"],             sideB:["rick"],           type:"singles" },
+  r4m2:   { sideA:["pfeifer"],          sideB:["tommy"],          type:"singles" },
+  r4m3:   { sideA:["taimour"],          sideB:["gary"],           type:"singles" },
+  r4m4:   { sideA:["rukus"],            sideB:["morri"],          type:"singles" },
+  r5m1:   { sideA:["pfeifer"],          sideB:["rick"],           type:"singles" },
+  r5m2:   { sideA:["ryan"],             sideB:["tommy"],          type:"singles" },
+  r5m3:   { sideA:["rukus"],            sideB:["gary"],           type:"singles" },
+  r5m4:   { sideA:["taimour"],          sideB:["morri"],          type:"singles" },
+  r23net: { sideA:[], sideB:[], type:"bonus" },
+};
+
+// ─── ROUNDS ─────────────────────────────────────────────────────
+const ROUNDS_CONFIG = [
+  { id:1, key:"r1", label:"Round 1", course:"wildfire",  format:"2v2 Match Play",     matches:[{id:"r1m1",pts:1},{id:"r1m2",pts:1}] },
+  { id:2, key:"r2", label:"Round 2", course:"wekopa",    format:"2v2 Match Play",     matches:[{id:"r2m1",pts:1},{id:"r2m2",pts:1}] },
+  { id:3, key:"r3", label:"Round 3", course:"wekopa",    format:"Mixed",              matches:[{id:"r3four",pts:1},{id:"r3s1",pts:1.5},{id:"r3s2",pts:1.5}] },
+  { id:"23bonus", key:"bonus", label:"R2+R3 Net Bonus", course:null, format:"Bonus",  matches:[{id:"r23net",pts:2}] },
+  { id:4, key:"r4", label:"Round 4", course:"grayhawk",  format:"Singles Match Play", matches:[{id:"r4m1",pts:1.5},{id:"r4m2",pts:1.5},{id:"r4m3",pts:1.5},{id:"r4m4",pts:1.5}] },
+  { id:5, key:"r5", label:"Round 5", course:"grayhawk",  format:"Singles Match Play", matches:[{id:"r5m1",pts:1.5},{id:"r5m2",pts:1.5},{id:"r5m3",pts:1.5},{id:"r5m4",pts:1.5}] },
+];
+
+const ROUND_BY_KEY = { r1:ROUNDS_CONFIG[0], r2:ROUNDS_CONFIG[1], r3:ROUNDS_CONFIG[2], r4:ROUNDS_CONFIG[4], r5:ROUNDS_CONFIG[5] };
+const ALL_MATCHES  = ROUNDS_CONFIG.flatMap(r=>r.matches);
+const TOTAL_POINTS = 22;
+const SKINS_POT    = 160;
+const FRONT = [0,1,2,3,4,5,6,7,8];
+const BACK  = [9,10,11,12,13,14,15,16,17];
+
+const fmt = n => n%1===0?String(n):n.toFixed(1);
+
+function matchLabel(id) {
+  const p = MATCH_PAIRINGS[id];
+  if(!p||p.type==="bonus") return "Combined Net Score Bonus";
+  return `${p.sideA.map(k=>PLAYERS[k].short).join(" & ")}  vs  ${p.sideB.map(k=>PLAYERS[k].short).join(" & ")}`;
+}
+
+function netScoreColor(net, par) {
+  if(net==null) return "#555";
+  if(net<=par-2) return "#5090ff";
+  if(net===par-1) return "#5cb85c";
+  if(net===par)   return "#c0b8a0";
+  if(net===par+1) return "#e05a5a";
+  return "#c03030";
+}
+
+// ─── MATCH PLAY LOGIC ───────────────────────────────────────────
+function calcMatchPlay(matchId, holeScores, courseKey) {
+  const p = MATCH_PAIRINGS[matchId];
+  if(!p||p.type==="bonus") return null;
+  const course   = COURSES[courseKey];
+  const allKeys  = [...p.sideA,...p.sideB];
+  const allowance = p.type==="singles" ? 1.00 : 0.90;
+  const pops     = calcPops(allKeys, course.holes, allowance);
+  let upDown=0, holesPlayed=0;
+  const holeResults=[];
+  for(let h=0;h<18;h++){
+    const aS=p.sideA.map(k=>{ const g=holeScores?.[k]?.[h]; return(g==null||g==="")?null:Number(g)-(pops[k]?.[h]??0); }).filter(s=>s!==null);
+    const bS=p.sideB.map(k=>{ const g=holeScores?.[k]?.[h]; return(g==null||g==="")?null:Number(g)-(pops[k]?.[h]??0); }).filter(s=>s!==null);
+    if(!aS.length||!bS.length){holeResults.push(null);continue;}
+    const aB=Math.min(...aS), bB=Math.min(...bS);
+    holesPlayed++;
+    if(aB<bB)upDown++; else if(bB<aB)upDown--;
+    holeResults.push(upDown);
+  }
+  const rem=18-holesPlayed;
+  let status="AS",winner=null;
+  if(Math.abs(upDown)>rem){
+    winner=upDown>0?"A":"B";
+    status=upDown>0?`${TEAM_A.emoji} ${Math.abs(upDown)}&${rem}`:`${TEAM_B.emoji} ${Math.abs(upDown)}&${rem}`;
+  } else if(holesPlayed===18){
+    if(upDown>0){winner="A";status=`${TEAM_A.emoji} 1UP`;}
+    else if(upDown<0){winner="B";status=`${TEAM_B.emoji} 1UP`;}
+    else{winner="halved";status="HALVED";}
+  } else if(upDown!==0){
+    status=upDown>0?`${TEAM_A.emoji} ${Math.abs(upDown)}UP`:`${TEAM_B.emoji} ${Math.abs(upDown)}UP`;
+  }
+  return{upDown,holesPlayed,holesRemaining:rem,status,winner,holeResults};
+}
+
+// ─── SKINS ──────────────────────────────────────────────────────
+function calcSkins(allHoleScores, courseKey) {
+  const course=COURSES[courseKey];
+  const allKeys=Object.keys(PLAYERS);
+  const pops=calcPops(allKeys,course.holes,0.90);
+  const skins=[];
+  for(let h=0;h<18;h++){
+    const par=course.holes[h].par;
+    const ns=allKeys.map(k=>{
+      let gross=null;
+      Object.values(allHoleScores||{}).forEach(ms=>{ if(ms?.[k]?.[h]!=null) gross=ms[k][h]; });
+      if(gross==null) return null;
+      return{k,net:Number(gross)-(pops[k]?.[h]??0)};
+    }).filter(Boolean);
+    if(!ns.length) continue;
+    const mn=Math.min(...ns.map(s=>s.net));
+    if(mn>=par) continue;
+    const w=ns.filter(s=>s.net===mn);
+    if(w.length===1) skins.push({holeIdx:h,hole:course.holes[h].h,player:w[0].k,net:mn,par});
+  }
+  return skins;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIREBASE HOOK
+// ═══════════════════════════════════════════════════════════════════
+function useFirebase() {
+  const [ready, setReady]       = useState(false);
+  const [fbError, setFbError]   = useState(null);
+  const dbRef                   = useRef(null);
+
+  useEffect(()=>{
+    try {
+      if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+      else firebase.app();
+      dbRef.current = firebase.database();
+      setReady(true);
+    } catch(e) {
+      setFbError("Firebase init failed: "+e.message);
+    }
+  },[]);
+
+  const listen = useCallback((cb)=>{
+    if(!dbRef.current) return ()=>{};
+    const ref = dbRef.current.ref(DB_PATH);
+    const handler = snap => { cb(snap.val()||{}); };
+    ref.on("value", handler);
+    return () => ref.off("value", handler);
+  },[ready]);
+
+  const save = useCallback(async (data)=>{
+    if(!dbRef.current) throw new Error("DB not ready");
+    await dbRef.current.ref(DB_PATH).set(data);
+  },[ready]);
+
+  return { ready, fbError, listen, save };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN APP
+// ═══════════════════════════════════════════════════════════════════
+function App() {
+  const [tab, setTab]           = useState("scoreboard");
+  const [matchResults, setMatchResults] = useState({});
+  const [holeScores, setHoleScores]     = useState({});
+  const [activeMatch, setActiveMatch]   = useState(null);
+  const [syncStatus, setSyncStatus]     = useState("connecting");
+
+  const { ready, fbError, listen, save } = useFirebase();
+
+  // Latest refs to avoid stale closures in debounced saves
+  const latestMR  = useRef({});
+  const latestHS  = useRef({});
+  const saveTimer = useRef(null);
+  const isSaving  = useRef(false);
+  const isRemote  = useRef(false); // flag: update came from Firebase, don't re-save
+
+  // Listen to Firebase in real-time
+  useEffect(()=>{
+    if(!ready) return;
+    setSyncStatus("idle");
+    const unsub = listen(data=>{
+      if(isSaving.current) return; // skip our own echo
+      isRemote.current = true;
+      const mr = data.matchResults||{};
+      const hs = data.holeScores||{};
+      latestMR.current = mr;
+      latestHS.current = hs;
+      setMatchResults(mr);
+      setHoleScores(hs);
+      setSyncStatus("live");
+      isRemote.current = false;
+    });
+    return unsub;
+  },[ready, listen]);
+
+  // Debounced save — batches rapid inputs into one write
+  const scheduleSave = useCallback(()=>{
+    if(saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async()=>{
+      if(isSaving.current){scheduleSave();return;}
+      isSaving.current=true;
+      setSyncStatus("saving");
+      try {
+        await save({ matchResults:latestMR.current, holeScores:latestHS.current, ts:Date.now() });
+        setSyncStatus("saved");
+        setTimeout(()=>setSyncStatus("live"),2000);
+      } catch(e){
+        setSyncStatus("error");
+      } finally {
+        isSaving.current=false;
+      }
+    },600);
+  },[save]);
+
+  const setMatchResult = useCallback((id,winner)=>{
+    setMatchResults(prev=>{
+      const next={...prev,[id]:winner===prev[id]?null:winner};
+      latestMR.current=next;
+      scheduleSave();
+      return next;
+    });
+  },[scheduleSave]);
+
+  const setHoleScore = useCallback((roundKey,matchId,pKey,hIdx,val)=>{
+    setHoleScores(prev=>{
+      const r={...(prev[roundKey]||{})};
+      const m={...(r[matchId]||{})};
+      const p={...(m[pKey]||{})};
+      if(val===undefined||val==="") delete p[hIdx]; else p[hIdx]=Number(val);
+      m[pKey]=p; r[matchId]=m;
+      const next={...prev,[roundKey]:r};
+      latestHS.current=next;
+      scheduleSave();
+      return next;
+    });
+  },[scheduleSave]);
+
+  // Totals
+  const totals=ALL_MATCHES.reduce((acc,m)=>{
+    const w=matchResults[m.id];
+    if(w==="A")acc.A+=m.pts;
+    else if(w==="B")acc.B+=m.pts;
+    else if(w==="halved"){acc.A+=m.pts/2;acc.B+=m.pts/2;}
+    return acc;
+  },{A:0,B:0});
+  const remaining=ALL_MATCHES.filter(m=>!matchResults[m.id]).reduce((s,m)=>s+m.pts,0);
+  const leader=totals.A>totals.B?"A":totals.B>totals.A?"B":null;
+  const margin=Math.abs(totals.A-totals.B);
+  const clinched=leader&&margin>remaining;
+  const leaderTeam=leader==="A"?TEAM_A:TEAM_B;
+
+  const TABS=[
+    {id:"scoreboard",label:"⛳ Board"},
+    {id:"r1",label:"R1"},{id:"r2",label:"R2"},{id:"r3",label:"R3"},
+    {id:"r4",label:"R4"},{id:"r5",label:"R5"},
+    {id:"skins",label:"💰 Skins"},
+    {id:"rosters",label:"👤 Teams"},
+  ];
+
+  const syncColor = {connecting:"#7a6345",idle:"#3a4a3a",live:"#5a8a5a",saving:"#c0a040",saved:"#5cb85c",error:"#e05a5a"}[syncStatus]||"#3a4a3a";
+  const syncLabel = {connecting:"⟳ CONNECTING",idle:"●  IDLE",live:"● LIVE",saving:"⟳ SAVING",saved:"✓ SAVED",error:"✗ ERROR"}[syncStatus]||"";
+
+  if(fbError) return (
+    <div style={{padding:40,textAlign:"center",color:"#e05a5a",fontFamily:"Georgia,serif"}}>
+      <div style={{fontSize:20,marginBottom:16}}>⚠️ Firebase Not Configured</div>
+      <div style={{fontSize:12,color:"#8a7060",maxWidth:500,margin:"0 auto",lineHeight:1.8}}>
+        Open <code>golf-cup.html</code> in a text editor and replace the <code>FIREBASE_CONFIG</code> values at the top with your own Firebase project credentials.<br/><br/>
+        Error: {fbError}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:"#080e08",fontFamily:"Georgia,serif",color:"#e8e0d0"}}>
+
+      {/* HEADER */}
+      <div style={{background:"linear-gradient(160deg,#162016,#0c180c,#162016)",borderBottom:"3px solid #7a6345",padding:"20px 16px 14px",textAlign:"center",position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:0,backgroundImage:"repeating-linear-gradient(60deg,transparent,transparent 50px,rgba(122,99,69,0.03) 50px,rgba(122,99,69,0.03) 100px)"}}/>
+        <div style={{fontSize:10,letterSpacing:6,color:"#7a6345",marginBottom:4}}>✦ THE CUP ✦</div>
+        <h1 style={{fontSize:"clamp(20px,5vw,40px)",fontWeight:400,margin:0,letterSpacing:5,color:"#f0e8d8",textShadow:"0 2px 24px rgba(122,99,69,0.5)"}}>MATCH SCOREBOARD</h1>
+        <div style={{fontSize:9,letterSpacing:3,color:"#7a6345",marginTop:3}}>5 ROUNDS · 22 PTS · FIRST TO 11 · $160 SKINS/ROUND</div>
+        <div style={{position:"absolute",top:10,right:12,fontSize:8,color:syncColor,letterSpacing:1}}>{syncLabel}</div>
+      </div>
+
+      {/* SCORE BANNER */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",background:"#0e160e",borderBottom:"1px solid #1e2e1e"}}>
+        {[TEAM_A,TEAM_B].map((team,i)=>{
+          const side=i===0?"A":"B", score=i===0?totals.A:totals.B, isLeader=leader===side;
+          return(
+            <div key={team.name} style={{padding:"12px 10px",textAlign:"center",background:isLeader?`rgba(${i===0?"50,100,50":"100,30,30"},0.2)`:"transparent",borderRight:i===0?"1px solid #1a2a1a":"none",borderLeft:i===1?"1px solid #1a2a1a":"none"}}>
+              <div style={{fontSize:"clamp(9px,1.8vw,11px)",letterSpacing:2,color:isLeader?team.color:"#8a8070"}}>{team.emoji} {team.name}{isLeader&&clinched?" 🏆":""}</div>
+              <div style={{fontSize:"clamp(34px,7vw,60px)",fontWeight:400,lineHeight:1,marginTop:3,color:isLeader?team.color:"#e8e0d0"}}>{fmt(score)}</div>
+            </div>
+          );
+        })}
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 8px"}}>
+          <div style={{fontSize:9,letterSpacing:3,color:"#3a4a3a"}}>VS</div>
+          <div style={{fontSize:8,color:"#2a3a2a",marginTop:2}}>{remaining>0?`${fmt(remaining)} left`:"FINAL"}</div>
+        </div>
+      </div>
+
+      {/* STATUS */}
+      <div style={{background:clinched?"rgba(30,80,30,0.4)":"rgba(122,99,69,0.1)",borderBottom:"1px solid #1e2e1e",padding:"5px 16px",textAlign:"center",fontSize:9,letterSpacing:3,color:clinched?"#7ec87e":"#7a6345"}}>
+        {clinched?`🏆 ${leaderTeam.name} WINS THE CUP`:leader?`${leaderTeam.name} LEADS BY ${fmt(margin)} · ${fmt(remaining)} PTS LEFT`:`ALL SQUARE · ${fmt(remaining)} PTS LEFT`}
+      </div>
+
+      {/* PROGRESS BAR */}
+      <div style={{background:"#060c06",height:4,position:"relative"}}>
+        <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${(totals.A/TOTAL_POINTS)*100}%`,background:`linear-gradient(90deg,#1f5c1f,${TEAM_A.color})`,transition:"width 0.4s"}}/>
+        <div style={{position:"absolute",right:0,top:0,height:"100%",width:`${(totals.B/TOTAL_POINTS)*100}%`,background:`linear-gradient(270deg,#5c1f1f,${TEAM_B.color})`,transition:"width 0.4s"}}/>
+        <div style={{position:"absolute",left:"50%",top:0,width:2,height:"100%",background:"#7a6345",transform:"translateX(-50%)"}}/>
+      </div>
+
+      {/* TABS */}
+      <div style={{display:"flex",overflowX:"auto",background:"#0a120a",borderBottom:"1px solid #1e2e1e"}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>{setTab(t.id);setActiveMatch(null);}}
+            style={{padding:"9px 13px",background:tab===t.id?"#141f14":"transparent",border:"none",borderBottom:tab===t.id?"2px solid #7a6345":"2px solid transparent",color:tab===t.id?"#c0b090":"#4a5a4a",cursor:"pointer",fontSize:9,letterSpacing:2,textTransform:"uppercase",whiteSpace:"nowrap",flexShrink:0}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{padding:"12px",maxWidth:920,margin:"0 auto"}}>
+        {tab==="scoreboard" && <ScoreboardTab rounds={ROUNDS_CONFIG} matchResults={matchResults} setMatchResult={setMatchResult} holeScores={holeScores}/>}
+        {["r1","r2","r3","r4","r5"].includes(tab) && (
+          <RoundTab roundConfig={ROUND_BY_KEY[tab]} matchResults={matchResults} setMatchResult={setMatchResult}
+            holeScores={holeScores[tab]||{}} onScore={(mid,pk,hi,v)=>setHoleScore(tab,mid,pk,hi,v)}
+            activeMatch={activeMatch} setActiveMatch={setActiveMatch}/>
+        )}
+        {tab==="skins"   && <SkinsTab holeScores={holeScores}/>}
+        {tab==="rosters" && <RostersTab/>}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SCOREBOARD TAB
+// ═══════════════════════════════════════════════════════════════════
+function ScoreboardTab({rounds,matchResults,setMatchResult,holeScores}){
+  return(<>
+    {rounds.map(round=>{
+      const isBonus=round.id==="23bonus";
+      const rPts=round.matches.reduce((s,m)=>{const w=matchResults[m.id];if(w==="A")return{...s,A:s.A+m.pts};if(w==="B")return{...s,B:s.B+m.pts};if(w==="halved")return{...s,A:s.A+m.pts/2,B:s.B+m.pts/2};return s;},{A:0,B:0});
+      const played=round.matches.filter(m=>matchResults[m.id]).length;
+      const rTotal=round.matches.reduce((s,m)=>s+m.pts,0);
+      return(
+        <div key={round.id} style={{border:`1px solid ${isBonus?"#4a3a1a":"#253525"}`,borderRadius:6,overflow:"hidden",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 12px",background:isBonus?"#181408":"#111a11"}}>
+            <div>
+              <div style={{fontSize:8,letterSpacing:3,color:isBonus?"#c0a040":"#7a6345"}}>{isBonus?"🎯 NET BONUS":`${round.label.toUpperCase()} · ${round.format.toUpperCase()}`}</div>
+              {round.course&&<div style={{fontSize:9,color:"#5a6a5a",marginTop:1}}>{COURSES[round.course].name}</div>}
+              {isBonus&&<div style={{fontSize:9,color:"#8a7a3a",marginTop:1}}>Combined Net Score · Rounds 2 & 3</div>}
+            </div>
+            <div>{played>0?<span style={{fontSize:12,color:"#90b890"}}>{fmt(rPts.A)} – {fmt(rPts.B)}</span>:<span style={{fontSize:9,color:isBonus?"#6a5a2a":"#4a5a4a"}}>{rTotal} pts</span>}</div>
+          </div>
+          {round.matches.map(m=>{
+            let liveStatus=null;
+            if(!isBonus&&round.course){
+              const hs=holeScores?.[round.key]?.[m.id];
+              if(hs){const mp=calcMatchPlay(m.id,hs,round.course);if(mp&&mp.holesPlayed>0)liveStatus=mp.status;}
+            }
+            return(
+              <div key={m.id} style={{borderTop:"1px solid #182818"}}>
+                <div style={{padding:"5px 12px 2px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:9,color:"#5a6a5a"}}>{matchLabel(m.id)}</span>
+                  {liveStatus&&<span style={{fontSize:9,color:"#c0a870",letterSpacing:1,fontWeight:"bold"}}>▶ {liveStatus}</span>}
+                </div>
+                <MatchResultRow matchId={m.id} pts={m.pts} matchResults={matchResults} setMatchResult={setMatchResult} isBonus={isBonus}/>
+              </div>
+            );
+          })}
+        </div>
+      );
+    })}
+    <div style={{padding:"10px",background:"#0a120a",border:"1px solid #1e2e1e",borderRadius:6}}>
+      <div style={{fontSize:8,letterSpacing:4,color:"#7a6345",textAlign:"center",marginBottom:8}}>POINTS STRUCTURE</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,textAlign:"center"}}>
+        {[{l:"Rounds 1–3",v:7,n:"Match play"},{l:"Net Bonus",v:2,n:"R2+R3 combined"},{l:"Rounds 4–5",v:12,n:"Singles day"}].map(s=>(
+          <div key={s.l} style={{padding:"7px 4px",background:"#0e160e",borderRadius:4,border:"1px solid #1a2a1a"}}>
+            <div style={{fontSize:18,color:"#c0b898"}}>{s.v}</div>
+            <div style={{fontSize:8,color:"#5a6a5a",marginTop:1}}>{s.l}</div>
+            <div style={{fontSize:7,color:"#3a4a3a",marginTop:1}}>{s.n}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </>);
+}
+
+// ─── MATCH RESULT ROW ────────────────────────────────────────────
+function MatchResultRow({matchId,pts,matchResults,setMatchResult,isBonus}){
+  const res=matchResults[matchId];
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",alignItems:"center",gap:5,padding:"3px 10px 8px",background:res?"rgba(122,99,69,0.05)":isBonus?"#100e06":"#0c160c"}}>
+      <button onClick={()=>setMatchResult(matchId,"A")} style={{padding:"6px 8px",background:res==="A"?TEAM_A.bg:"rgba(255,255,255,0.02)",border:res==="A"?`1px solid ${TEAM_A.color}`:"1px solid #253525",borderRadius:4,color:res==="A"?TEAM_A.color:"#606860",fontSize:9,letterSpacing:1}}>
+        {TEAM_A.emoji} {res==="A"?"✓ WIN":TEAM_A.short}
+      </button>
+      <div style={{textAlign:"center",minWidth:65}}>
+        <div style={{fontSize:9,color:isBonus?"#c0a040":"#7a6345"}}>{pts} pt{pts!==1?"s":""}</div>
+        <button onClick={()=>setMatchResult(matchId,"halved")} style={{marginTop:2,padding:"2px 5px",background:res==="halved"?"rgba(122,99,69,0.25)":"transparent",border:res==="halved"?"1px solid #7a6345":"1px solid #253525",borderRadius:3,color:res==="halved"?"#c0a870":"#3a4a3a",fontSize:7,letterSpacing:2}}>HALVED</button>
+      </div>
+      <button onClick={()=>setMatchResult(matchId,"B")} style={{padding:"6px 8px",background:res==="B"?TEAM_B.bg:"rgba(255,255,255,0.02)",border:res==="B"?`1px solid ${TEAM_B.color}`:"1px solid #253525",borderRadius:4,color:res==="B"?TEAM_B.color:"#606860",fontSize:9,letterSpacing:1}}>
+        {TEAM_B.emoji} {res==="B"?"✓ WIN":TEAM_B.short}
+      </button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ROUND TAB
+// ═══════════════════════════════════════════════════════════════════
+function RoundTab({roundConfig,matchResults,setMatchResult,holeScores,onScore,activeMatch,setActiveMatch}){
+  const course=COURSES[roundConfig.course];
+  const rPts=roundConfig.matches.reduce((s,m)=>{const w=matchResults[m.id];if(w==="A")return{...s,A:s.A+m.pts};if(w==="B")return{...s,B:s.B+m.pts};if(w==="halved")return{...s,A:s.A+m.pts/2,B:s.B+m.pts/2};return s;},{A:0,B:0});
+  const played=roundConfig.matches.filter(m=>matchResults[m.id]).length;
+  return(<>
+    <div style={{padding:"9px 12px",background:"#111a11",border:"1px solid #253525",borderRadius:6,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div>
+        <div style={{fontSize:8,letterSpacing:3,color:"#7a6345"}}>{roundConfig.label.toUpperCase()} · {roundConfig.format.toUpperCase()}</div>
+        <div style={{fontSize:13,color:"#d0c8b0",marginTop:2}}>{course.name}</div>
+        <div style={{fontSize:9,color:"#5a6a5a",marginTop:1}}>{course.subtitle} · Par {course.par}</div>
+      </div>
+      {played>0&&<div style={{textAlign:"right"}}>
+        <div style={{fontSize:8,color:"#5a6a5a",letterSpacing:1}}>ROUND</div>
+        <div style={{fontSize:18}}><span style={{color:TEAM_A.color}}>{fmt(rPts.A)}</span><span style={{color:"#3a4a3a",margin:"0 6px"}}>–</span><span style={{color:TEAM_B.color}}>{fmt(rPts.B)}</span></div>
+      </div>}
+    </div>
+    {roundConfig.matches.map(m=>{
+      const isBonus=m.id==="r23net", isOpen=activeMatch===m.id;
+      const hs=holeScores?.[m.id]||{};
+      const mp=!isBonus?calcMatchPlay(m.id,hs,roundConfig.course):null;
+      return(
+        <div key={m.id} style={{border:"1px solid #253525",borderRadius:6,overflow:"hidden",marginBottom:10}}>
+          <div style={{background:"#111a11",padding:"7px 12px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:10,color:"#c0b8a0"}}>{matchLabel(m.id)}</div>
+                <div style={{fontSize:8,color:"#4a5a4a",marginTop:1}}>{m.pts} pt{m.pts!==1?"s":""} · {roundConfig.format}</div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                {mp&&mp.holesPlayed>0&&(
+                  <div style={{padding:"3px 8px",background:mp.upDown===0?"rgba(122,99,69,0.2)":mp.upDown>0?TEAM_A.bg:TEAM_B.bg,border:`1px solid ${mp.upDown===0?"#7a6345":mp.upDown>0?TEAM_A.color:TEAM_B.color}`,borderRadius:4,fontSize:9,color:mp.upDown===0?"#c0a870":mp.upDown>0?TEAM_A.color:TEAM_B.color,fontWeight:"bold"}}>
+                    {mp.status}
+                  </div>
+                )}
+                {!isBonus&&<button onClick={()=>setActiveMatch(isOpen?null:m.id)} style={{padding:"3px 8px",background:isOpen?"rgba(122,99,69,0.2)":"transparent",border:"1px solid #3a4a3a",borderRadius:3,color:"#7a6345",fontSize:8,letterSpacing:2}}>
+                  {isOpen?"▲ CLOSE":"▼ CARD"}
+                </button>}
+              </div>
+            </div>
+          </div>
+          <MatchResultRow matchId={m.id} pts={m.pts} matchResults={matchResults} setMatchResult={setMatchResult} isBonus={isBonus}/>
+          {isOpen&&!isBonus&&(
+            <MatchScorecard matchId={m.id} courseKey={roundConfig.course} holeScores={hs}
+              onScore={(pk,hi,v)=>onScore(m.id,pk,hi,v)} mp={mp}/>
+          )}
+        </div>
+      );
+    })}
+  </>);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MATCH SCORECARD
+// ═══════════════════════════════════════════════════════════════════
+function MatchScorecard({matchId,courseKey,holeScores,onScore,mp}){
+  const course=COURSES[courseKey];
+  const pairing=MATCH_PAIRINGS[matchId];
+  const allKeys=[...pairing.sideA,...pairing.sideB];
+  const allowance=pairing.type==="singles"?1.00:0.90;
+  const pops=calcPops(allKeys,course.holes,allowance);
+  const allowancePct=pairing.type==="singles"?"100%":"90%";
+
+  const getG=(k,h)=>holeScores?.[k]?.[h]??"";
+  const setG=(k,h,v)=>onScore(k,h,v===""?undefined:Number(v));
+  const netOf=(k,h)=>{const g=getG(k,h);if(g===""||isNaN(g))return null;return Number(g)-(pops[k]?.[h]??0);};
+
+  const renderNine=(holeIdxs,label)=>(
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:580}}>
+        <thead>
+          <tr style={{background:"#0e1a0e"}}>
+            <td style={{padding:"4px 6px",color:"#7a6345",fontSize:8,letterSpacing:2,minWidth:78}}>HOLE</td>
+            {holeIdxs.map(h=><td key={h} style={{padding:"4px 2px",textAlign:"center",color:"#c0b8a0",fontWeight:"bold",width:28}}>{course.holes[h].h}</td>)}
+            <td style={{padding:"4px 6px",textAlign:"center",color:"#7a6345",fontSize:8,minWidth:38}}>{label}</td>
+          </tr>
+          <tr style={{background:"#0a140a"}}>
+            <td style={{padding:"3px 6px",color:"#5a6a5a",fontSize:8}}>Par</td>
+            {holeIdxs.map(h=><td key={h} style={{padding:"3px 2px",textAlign:"center",color:"#8a7a5a",fontSize:9}}>{course.holes[h].par}</td>)}
+            <td style={{padding:"3px 6px",textAlign:"center",color:"#8a7a5a",fontSize:9}}>{holeIdxs.reduce((s,h)=>s+course.holes[h].par,0)}</td>
+          </tr>
+          <tr style={{background:"#080e08"}}>
+            <td style={{padding:"2px 6px",color:"#2a3a2a",fontSize:8}}>Hcp</td>
+            {holeIdxs.map(h=><td key={h} style={{padding:"2px 2px",textAlign:"center",color:"#2a3a2a",fontSize:8}}>{course.holes[h].hcp}</td>)}
+            <td/>
+          </tr>
+          <tr style={{background:"#0d1a0d"}}>
+            <td style={{padding:"3px 6px",color:"#6a5a3a",fontSize:7,letterSpacing:1}}>MATCH</td>
+            {holeIdxs.map(h=>{
+              const st=mp?.holeResults?.[h];
+              if(st==null) return <td key={h} style={{padding:"2px",textAlign:"center",color:"#2a3a2a",fontSize:7}}>—</td>;
+              const col=st===0?"#8a7a5a":st>0?TEAM_A.color:TEAM_B.color;
+              return <td key={h} style={{padding:"2px 0",textAlign:"center",color:col,fontSize:8,fontWeight:"bold"}}>{st===0?"AS":st>0?`🌵${Math.abs(st)}`:`🌶${Math.abs(st)}`}</td>;
+            })}
+            <td style={{padding:"3px 6px",textAlign:"center",fontSize:8,fontWeight:"bold",color:mp?.upDown===0?"#8a7a5a":mp?.upDown>0?TEAM_A.color:TEAM_B.color}}>
+              {mp&&mp.holesPlayed>0?(mp.upDown===0?"AS":mp.upDown>0?`🌵${Math.abs(mp.upDown)}`:`🌶${Math.abs(mp.upDown)}`):"—"}
+            </td>
+          </tr>
+        </thead>
+        <tbody>
+          {[{keys:pairing.sideA,team:TEAM_A,bg1:"#0c160c",bg2:"#0a130a",tbg:"#0e1a0e"},{keys:pairing.sideB,team:TEAM_B,bg1:"#160c0c",bg2:"#130a0a",tbg:"#1a0d0d"}].map(({keys,team,bg1,bg2,tbg})=>[
+            <tr key={team.short+"hdr"}><td colSpan={holeIdxs.length+2} style={{padding:"3px 6px",fontSize:7,letterSpacing:2,color:team.color,background:tbg}}>{team.emoji} {team.name}</td></tr>,
+            ...keys.map((k,pi)=>{
+              const totalPops=Math.round((PLAYERS[k].hcp-Math.min(...allKeys.map(x=>PLAYERS[x].hcp)))*allowance);
+              const gOut=holeIdxs.reduce((s,h)=>{const g=getG(k,h);return g!==""&&!isNaN(g)?s+Number(g):s;},0);
+              const nOut=holeIdxs.reduce((s,h)=>{const n=netOf(k,h);return n!==null?s+n:s;},0);
+              const hasAny=holeIdxs.some(h=>getG(k,h)!=="");
+              return(
+                <tr key={k} style={{background:pi%2===0?bg1:bg2,borderTop:"1px solid #182818"}}>
+                  <td style={{padding:"3px 6px"}}>
+                    <div style={{fontSize:9,color:"#c0b8a0"}}>{PLAYERS[k].short}</div>
+                    <div style={{fontSize:7,color:team===TEAM_A?"#3a5a3a":"#5a3a3a"}}>+{totalPops} pops</div>
+                  </td>
+                  {holeIdxs.map(h=>{
+                    const g=getG(k,h), net=netOf(k,h), par=course.holes[h].par, pop=pops[k]?.[h]??0;
+                    return(
+                      <td key={h} style={{padding:"2px 1px",textAlign:"center"}}>
+                        <input type="number" min="1" max="12" value={g} onChange={e=>setG(k,h,e.target.value)}
+                          style={{width:26,height:22,textAlign:"center",background:team===TEAM_A?"#111a11":"#1a1111",border:`1px solid ${team===TEAM_A?"#253525":"#352525"}`,borderRadius:3,color:net!==null?netScoreColor(net,par):"#555",fontSize:11,outline:"none",padding:0,fontFamily:"Georgia,serif"}}/>
+                        {pop>0&&net!==null&&<div style={{fontSize:6,color:netScoreColor(net,par),textAlign:"center",opacity:0.8}}>{net}</div>}
+                      </td>
+                    );
+                  })}
+                  <td style={{padding:"3px 6px",textAlign:"center"}}>
+                    {hasAny&&<div><span style={{fontSize:10,color:"#c0b8a0"}}>{gOut}</span><span style={{fontSize:8,color:team.color,marginLeft:3}}>({nOut})</span></div>}
+                  </td>
+                </tr>
+              );
+            })
+          ])}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const totalPopsLine=allKeys.map(k=>{const d=Math.round((PLAYERS[k].hcp-Math.min(...allKeys.map(x=>PLAYERS[x].hcp)))*allowance);return `${PLAYERS[k].short}: ${d===0?"scratch":"+"+d}`;}).join("  ·  ");
+
+  return(
+    <div style={{borderTop:"1px solid #253525"}}>
+      <div style={{padding:"6px 12px",background:"#0a140a",borderBottom:"1px solid #1e2e1e"}}>
+        <div style={{fontSize:8,color:"#4a5a3a"}}>🎯 Pops ({allowancePct} · {pairing.type==="singles"?"singles":"2v2 pairs"}): {totalPopsLine}</div>
+        <div style={{fontSize:7,color:"#3a4a3a",marginTop:2}}>Color = net vs par · small number = net when pop applies</div>
+      </div>
+      <div style={{padding:"8px 0 4px"}}>
+        <div style={{fontSize:7,letterSpacing:3,color:"#4a5a4a",padding:"0 8px 3px"}}>FRONT NINE</div>
+        {renderNine(FRONT,"OUT")}
+        <div style={{fontSize:7,letterSpacing:3,color:"#4a5a4a",padding:"8px 8px 3px"}}>BACK NINE</div>
+        {renderNine(BACK,"IN")}
+      </div>
+      <div style={{padding:"4px 10px 8px",fontSize:7,color:"#3a4a3a"}}>🔵 Eagle · 🟢 Birdie · ⚪ Par · 🔴 Bogey · 🟥 Double+</div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SKINS TAB
+// ═══════════════════════════════════════════════════════════════════
+function SkinsTab({holeScores}){
+  const roundSkins=ROUNDS_CONFIG.filter(r=>r.course).map(r=>{
+    const skins=calcSkins(holeScores?.[r.key]||{},r.course);
+    const val=skins.length>0?(SKINS_POT/skins.length).toFixed(2):null;
+    return{round:r,course:COURSES[r.course],skins,val};
+  });
+  const playerTotals={};
+  roundSkins.forEach(({skins,val})=>skins.forEach(s=>{
+    if(!playerTotals[s.player])playerTotals[s.player]={skins:0,winnings:0};
+    playerTotals[s.player].skins++;
+    playerTotals[s.player].winnings+=val?parseFloat(val):0;
+  }));
+  const sorted=Object.entries(playerTotals).sort((a,b)=>b[1].winnings-a[1].winnings);
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{border:"1px solid #4a3a1a",borderRadius:6,overflow:"hidden"}}>
+        <div style={{padding:"8px 12px",background:"#181408",borderBottom:"1px solid #4a3a1a",textAlign:"center"}}>
+          <div style={{fontSize:8,letterSpacing:4,color:"#c0a040"}}>💰 SKINS LEADERBOARD</div>
+          <div style={{fontSize:9,color:"#7a6a3a",marginTop:2}}>${SKINS_POT}/round · net birdie or better · outright only</div>
+        </div>
+        {sorted.length===0
+          ?<div style={{padding:"20px",textAlign:"center",color:"#3a4a3a",fontSize:10}}>No skins yet — enter hole scores to track</div>
+          :<div style={{background:"#0e0c06"}}>
+            {sorted.map(([k,d],i)=>{
+              const team=PLAYERS[k].team==="A"?TEAM_A:TEAM_B;
+              return(
+                <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 14px",borderTop:i>0?"1px solid #1e1a08":"none"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:12,color:"#c0a040",minWidth:20}}>#{i+1}</span>
+                    <span>{team.emoji}</span>
+                    <div><div style={{fontSize:12,color:"#c0b8a0"}}>{PLAYERS[k].name}</div><div style={{fontSize:8,color:team.color}}>{team.short}</div></div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:16,color:"#c0a040",fontWeight:"bold"}}>${d.winnings.toFixed(0)}</div>
+                    <div style={{fontSize:8,color:"#6a5a3a"}}>{d.skins} skin{d.skins!==1?"s":""}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>}
+      </div>
+      {roundSkins.map(({round,course,skins,val})=>(
+        <div key={round.key} style={{border:"1px solid #3a3010",borderRadius:6,overflow:"hidden"}}>
+          <div style={{padding:"7px 12px",background:"#161206",borderBottom:"1px solid #3a3010",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:8,letterSpacing:2,color:"#c0a040"}}>{round.label.toUpperCase()}</div>
+              <div style={{fontSize:10,color:"#8a7a4a",marginTop:1}}>{course.name} · Par {course.par}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:9,color:"#c0a040"}}>${SKINS_POT} pot</div>
+              {skins.length>0&&<div style={{fontSize:8,color:"#8a7a4a"}}>{skins.length} skin{skins.length!==1?"s":""} · ${parseFloat(val).toFixed(0)} each</div>}
+            </div>
+          </div>
+          {skins.length===0
+            ?<div style={{padding:"12px",textAlign:"center",color:"#3a3a2a",fontSize:9}}>No skins yet</div>
+            :<div style={{background:"#0c0a04"}}>
+              <div style={{display:"grid",gridTemplateColumns:"40px 1fr 55px 55px 55px",padding:"4px 10px",fontSize:7,color:"#4a4a2a",letterSpacing:1,borderBottom:"1px solid #1e1a08"}}>
+                <span>HOLE</span><span>PLAYER</span><span style={{textAlign:"center"}}>PAR</span><span style={{textAlign:"center"}}>NET</span><span style={{textAlign:"right"}}>WIN</span>
+              </div>
+              {skins.map((s,si)=>{
+                const team=PLAYERS[s.player].team==="A"?TEAM_A:TEAM_B;
+                return(
+                  <div key={si} style={{display:"grid",gridTemplateColumns:"40px 1fr 55px 55px 55px",alignItems:"center",padding:"7px 10px",borderTop:si>0?"1px solid #141204":"none"}}>
+                    <span style={{fontSize:11,color:"#a0904a",fontWeight:"bold"}}>#{s.hole}</span>
+                    <span style={{fontSize:11,color:team.color}}>{team.emoji} {PLAYERS[s.player].short}</span>
+                    <span style={{textAlign:"center",fontSize:10,color:"#6a6a4a"}}>{s.par}</span>
+                    <span style={{textAlign:"center",fontSize:11,color:s.net-s.par<=-2?"#5090ff":"#5cb85c",fontWeight:"bold"}}>{s.net} {s.net-s.par<=-2?"🦅":"🐦"}</span>
+                    <span style={{textAlign:"right",fontSize:11,color:"#c0a040",fontWeight:"bold"}}>${parseFloat(val).toFixed(0)}</span>
+                  </div>
+                );
+              })}
+              <div style={{padding:"5px 10px",borderTop:"1px solid #1e1a08",textAlign:"right",fontSize:8,color:"#6a5a2a"}}>
+                ${SKINS_POT} ÷ {skins.length} = ${parseFloat(val).toFixed(2)}/skin
+              </div>
+            </div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ROSTERS TAB
+// ═══════════════════════════════════════════════════════════════════
+function RostersTab(){
+  const aKeys=["pfeifer","ryan","rukus","taimour"], bKeys=["rick","tommy","gary","morri"];
+  const allSorted=Object.entries(PLAYERS).sort((a,b)=>a[1].hcp-b[1].hcp);
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        {[{team:TEAM_A,keys:aKeys},{team:TEAM_B,keys:bKeys}].map(({team,keys})=>(
+          <div key={team.name} style={{border:`1px solid ${team.color}33`,borderRadius:6,overflow:"hidden"}}>
+            <div style={{padding:"10px 8px",background:`linear-gradient(135deg,${team.color}15,${team.color}08)`,borderBottom:`2px solid ${team.color}`,textAlign:"center"}}>
+              <div style={{fontSize:22,marginBottom:3}}>{team.emoji}</div>
+              <div style={{fontSize:"clamp(9px,1.8vw,12px)",letterSpacing:2,color:team.color}}>{team.name}</div>
+              <div style={{fontSize:8,color:`${team.color}80`,marginTop:2}}>AVG HCP: {(keys.reduce((s,k)=>s+PLAYERS[k].hcp,0)/keys.length).toFixed(1)}</div>
+            </div>
+            <div style={{padding:"7px",display:"flex",flexDirection:"column",gap:4,background:"#0a100a"}}>
+              {keys.map(k=>(
+                <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 8px",background:"rgba(255,255,255,0.02)",borderRadius:4,borderLeft:`2px solid ${team.color}`}}>
+                  <span style={{fontSize:11,color:"#c0b8a0"}}>{PLAYERS[k].name}</span>
+                  <span style={{fontSize:11,color:team.color}}>{PLAYERS[k].hcp.toFixed(1)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{border:"1px solid #253535",borderRadius:6,overflow:"hidden"}}>
+        <div style={{padding:"7px 12px",background:"#0e1414",borderBottom:"1px solid #1e2e2e",textAlign:"center"}}>
+          <div style={{fontSize:8,letterSpacing:3,color:"#7a6345"}}>MATCH PAIRINGS</div>
+        </div>
+        <div style={{background:"#0a1010"}}>
+          {[
+            {round:"R1 · Wildfire — 2v2",mids:["r1m1","r1m2"]},
+            {round:"R2 · We-Ko-Pa — 2v2",mids:["r2m1","r2m2"]},
+            {round:"R3 · We-Ko-Pa — Mixed",mids:["r3four","r3s1","r3s2"]},
+            {round:"R4 · Grayhawk — Singles",mids:["r4m1","r4m2","r4m3","r4m4"]},
+            {round:"R5 · Grayhawk — Singles",mids:["r5m1","r5m2","r5m3","r5m4"]},
+          ].map((row,ri)=>(
+            <div key={ri} style={{padding:"8px 12px",borderTop:ri>0?"1px solid #141e1e":"none"}}>
+              <div style={{fontSize:8,letterSpacing:2,color:"#7a6345",marginBottom:5}}>{row.round}</div>
+              {row.mids.map(mid=>{
+                const p=MATCH_PAIRINGS[mid];if(!p||p.type==="bonus")return null;
+                return(
+                  <div key={mid} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontSize:10,color:TEAM_A.color}}>{TEAM_A.emoji} {p.sideA.map(k=>`${PLAYERS[k].short}(${PLAYERS[k].hcp})`).join(" & ")}</span>
+                    <span style={{fontSize:9,color:"#3a4a3a"}}>vs</span>
+                    <span style={{fontSize:10,color:TEAM_B.color}}>{TEAM_B.emoji} {p.sideB.map(k=>`${PLAYERS[k].short}(${PLAYERS[k].hcp})`).join(" & ")}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{border:"1px solid #253535",borderRadius:6,overflow:"hidden"}}>
+        <div style={{padding:"7px 12px",background:"#0e1414",borderBottom:"1px solid #1e2e2e",textAlign:"center"}}>
+          <div style={{fontSize:8,letterSpacing:3,color:"#7a6345"}}>ALL PLAYERS · BY HANDICAP</div>
+        </div>
+        <div style={{background:"#0a1010"}}>
+          {allSorted.map(([k,p],i)=>{
+            const team=p.team==="A"?TEAM_A:TEAM_B;
+            return(
+              <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 12px",borderTop:i>0?"1px solid #141e1e":"none"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:9,color:"#3a4a4a",minWidth:16}}>#{i+1}</span>
+                  <span>{team.emoji}</span>
+                  <span style={{fontSize:12,color:"#b0a890"}}>{p.name}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <span style={{fontSize:9,color:team.color}}>{team.short}</span>
+                  <span style={{fontSize:12,color:"#9a8878",minWidth:28,textAlign:"right"}}>{p.hcp.toFixed(1)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{border:"1px solid #253535",borderRadius:6,overflow:"hidden"}}>
+        <div style={{padding:"7px 12px",background:"#0e1414",borderBottom:"1px solid #1e2e2e",textAlign:"center"}}>
+          <div style={{fontSize:8,letterSpacing:3,color:"#7a6345"}}>COURSE SCHEDULE</div>
+        </div>
+        <div style={{background:"#0a1010"}}>
+          {[
+            {r:"Round 1",c:"Wildfire Golf Club — Faldo Course",l:"Phoenix, AZ",p:71},
+            {r:"Rounds 2 & 3",c:"We-Ko-Pa Golf Club — Saguaro Course",l:"Fort McDowell, AZ",p:71},
+            {r:"Rounds 4 & 5",c:"Grayhawk Golf Club — Raptor Course",l:"Scottsdale, AZ",p:72},
+          ].map((row,i)=>(
+            <div key={i} style={{padding:"9px 12px",borderTop:i>0?"1px solid #141e1e":"none"}}>
+              <div style={{fontSize:8,letterSpacing:2,color:"#7a6345",marginBottom:2}}>{row.r}</div>
+              <div style={{fontSize:12,color:"#c0b8a0"}}>{row.c}</div>
+              <div style={{fontSize:9,color:"#5a6a5a",marginTop:1}}>{row.l} · Par {row.p}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── RENDER ─────────────────────────────────────────────────────
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
