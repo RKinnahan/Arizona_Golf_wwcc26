@@ -1,0 +1,1803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>The Cup</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{font-size:16px}
+body{background:#e8efe8;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',Georgia,serif;color:#1a2a1a;min-height:100vh;-webkit-text-size-adjust:100%}
+input[type=number]{-moz-appearance:textfield;font-family:inherit}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+button{font-family:inherit;cursor:pointer;-webkit-appearance:none;border:none;outline:none}
+select{font-family:inherit;-webkit-appearance:none;appearance:none}
+/* Large touch targets */
+.btn{display:flex;align-items:center;justify-content:center;min-height:52px;border-radius:12px;font-size:15px;font-weight:700;letter-spacing:.3px;transition:opacity .15s}
+.btn:active{opacity:.75}
+.btn-sm{min-height:40px;border-radius:9px;font-size:13px}
+.btn-xs{min-height:34px;border-radius:7px;font-size:12px}
+.card{background:#fff;border-radius:14px;box-shadow:0 1px 6px rgba(0,0,0,.08);overflow:hidden;margin-bottom:12px}
+.section{padding:14px}
+/* Score input large */
+.score-input{width:52px;height:52px;border-radius:10px;border:2px solid #b8ccb8;font-size:22px;font-weight:800;text-align:center;background:#f8faf8;color:#1a2a1a;outline:none;-webkit-appearance:none}
+.score-input:focus{border-color:#1a7a1a;background:#f0fff0}
+.putt-input{width:40px;height:36px;border-radius:8px;border:2px solid #b8ccb8;font-size:15px;font-weight:700;text-align:center;background:#f8faf8;color:#6a8a6a;outline:none}
+.putt-input.three-putt{border-color:#c8a820;background:#fff8e0;color:#8a6a00}
+/* Tab bar */
+.tab-bar{display:flex;overflow-x:auto;background:#fff;border-top:1px solid #d0e0d0;position:sticky;bottom:0;z-index:100;-webkit-overflow-scrolling:touch;padding-bottom:env(safe-area-inset-bottom)}
+.tab-bar::-webkit-scrollbar{display:none}
+.tab-btn{flex:0 0 auto;padding:10px 14px 8px;border:none;background:transparent;color:#7a9a7a;font-size:10px;letter-spacing:.5px;text-transform:uppercase;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:56px;border-top:3px solid transparent}
+.tab-btn.active{color:#1a7a1a;border-top-color:#1a7a1a;background:#f0faf0}
+.tab-icon{font-size:20px;line-height:1}
+/* Status badge */
+.status-badge{display:inline-flex;align-items:center;padding:5px 12px;border-radius:20px;font-size:13px;font-weight:700;letter-spacing:.3px}
+/* Hole navigator */
+.hole-nav{display:flex;align-items:center;gap:8px}
+.hole-btn{width:44px;height:44px;border-radius:22px;background:#1e3a1e;color:#e8f4e8;font-size:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.hole-btn:disabled{background:#c8d8c8;color:#8aaa8a}
+/* Match status pill */
+.match-pill{padding:8px 16px;border-radius:24px;font-size:14px;font-weight:800;letter-spacing:.5px;text-align:center}
+/* Snake animation */
+@keyframes snakeWiggle{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
+.snake-icon{display:inline-block;animation:snakeWiggle .5s ease-in-out infinite;font-size:20px}
+.snake-drag-item{touch-action:none;user-select:none;-webkit-user-select:none}
+/* Money colors */
+.money-pos{color:#1a7a1a;font-weight:800}
+.money-neg{color:#c02020;font-weight:800}
+/* Safe area */
+.safe-top{padding-top:env(safe-area-inset-top)}
+.content{padding:12px 12px 80px}
+/* Divider */
+.divider{height:1px;background:#e0eae0;margin:0}
+/* Highlight rows */
+.row-a{background:rgba(20,120,20,0.06)}
+.row-b{background:rgba(192,32,32,0.06)}
+/* Bigger selects */
+.sel{width:100%;padding:12px 14px;border-radius:10px;border:2px solid #b8ccb8;font-size:15px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236a8a6a' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 12px center;padding-right:36px;color:#1a2a1a;outline:none;-webkit-appearance:none}
+</style>
+
+<script>
+// ── AUDIO ENGINE (Web Audio API, no files needed) ──────────────
+window.SFX = (function(){
+  let ctx = null;
+  function getCtx(){
+    if(!ctx) ctx = new (window.AudioContext||window.webkitAudioContext)();
+    if(ctx.state==='suspended') ctx.resume();
+    return ctx;
+  }
+
+  // Slot machine coins: rapid cascading metallic coin clinks tumbling into a tray.
+  // Each "coin" = two detuned sine partials + a high-freq metallic ping + noise burst.
+  // Coins fall in a loose staggered cascade — not perfectly evenly spaced — for realism.
+  function caChing(points){
+    const ac = getCtx();
+    const n = Math.max(1, Math.abs(Math.round(points)));
+
+    // Master gain to prevent clipping when many coins overlap
+    const master = ac.createGain();
+    master.gain.value = 0.7;
+    master.connect(ac.destination);
+
+    // Coin frequencies — slight variety so each sounds distinct
+    const coinFreqs = [1050, 1180, 980, 1120, 1060, 1200, 940, 1090];
+
+    for(let rep=0; rep<n; rep++){
+      // Stagger with small random jitter — coins don't fall perfectly evenly
+      const jitter = (Math.random() - 0.5) * 0.04;
+      const t0 = ac.currentTime + 0.08 + rep * 0.11 + jitter;
+      const f  = coinFreqs[rep % coinFreqs.length];
+
+      // --- Layer 1: Primary metallic ring (sine) ---
+      const osc1 = ac.createOscillator();
+      const g1   = ac.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(f, t0);
+      osc1.frequency.exponentialRampToValueAtTime(f * 0.88, t0 + 0.18);
+      g1.gain.setValueAtTime(0, t0);
+      g1.gain.linearRampToValueAtTime(0.55, t0 + 0.003);   // instant attack
+      g1.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+      osc1.connect(g1); g1.connect(master);
+      osc1.start(t0); osc1.stop(t0 + 0.23);
+
+      // --- Layer 2: Slightly detuned second partial (gives "coin" thickness) ---
+      const osc2 = ac.createOscillator();
+      const g2   = ac.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(f * 2.76, t0);   // inharmonic overtone
+      osc2.frequency.exponentialRampToValueAtTime(f * 2.40, t0 + 0.10);
+      g2.gain.setValueAtTime(0, t0);
+      g2.gain.linearRampToValueAtTime(0.28, t0 + 0.003);
+      g2.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
+      osc2.connect(g2); g2.connect(master);
+      osc2.start(t0); osc2.stop(t0 + 0.13);
+
+      // --- Layer 3: Click transient (coin hitting tray) — very short noise burst ---
+      const clickLen = Math.ceil(ac.sampleRate * 0.008);
+      const cBuf = ac.createBuffer(1, clickLen, ac.sampleRate);
+      const cD   = cBuf.getChannelData(0);
+      for(let i=0; i<clickLen; i++) cD[i] = (Math.random()*2-1) * (1 - i/clickLen);
+      const cSrc = ac.createBufferSource();
+      const cHp  = ac.createBiquadFilter();
+      const cG   = ac.createGain();
+      cSrc.buffer = cBuf;
+      cHp.type = 'highpass'; cHp.frequency.value = 4000;
+      cG.gain.setValueAtTime(0.35, t0);
+      cG.gain.exponentialRampToValueAtTime(0.001, t0 + 0.008);
+      cSrc.connect(cHp); cHp.connect(cG); cG.connect(master);
+      cSrc.start(t0); cSrc.stop(t0 + 0.009);
+
+      // --- Layer 4: Brief metallic shimmer (bandpass noise tail) ---
+      const shimLen = Math.ceil(ac.sampleRate * 0.06);
+      const sBuf = ac.createBuffer(1, shimLen, ac.sampleRate);
+      const sD   = sBuf.getChannelData(0);
+      for(let i=0; i<shimLen; i++) sD[i] = (Math.random()*2-1);
+      const sSrc = ac.createBufferSource();
+      const sBp  = ac.createBiquadFilter();
+      const sG   = ac.createGain();
+      sSrc.buffer = sBuf;
+      sBp.type = 'bandpass'; sBp.frequency.value = 5500 + Math.random()*800; sBp.Q.value = 3;
+      sG.gain.setValueAtTime(0.12, t0 + 0.002);
+      sG.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
+      sSrc.connect(sBp); sBp.connect(sG); sG.connect(master);
+      sSrc.start(t0 + 0.002); sSrc.stop(t0 + 0.065);
+    }
+
+    // Slot machine "jackpot" bass thud on the first coin — the machine dropping
+    const thudOsc = ac.createOscillator();
+    const thudG   = ac.createGain();
+    thudOsc.type = 'sine';
+    thudOsc.frequency.setValueAtTime(110, ac.currentTime + 0.06);
+    thudOsc.frequency.exponentialRampToValueAtTime(45, ac.currentTime + 0.14);
+    thudG.gain.setValueAtTime(0, ac.currentTime + 0.06);
+    thudG.gain.linearRampToValueAtTime(0.45, ac.currentTime + 0.063);
+    thudG.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.18);
+    thudOsc.connect(thudG); thudG.connect(master);
+    thudOsc.start(ac.currentTime + 0.06); thudOsc.stop(ac.currentTime + 0.19);
+  }
+
+  // Rattlesnake: dry white-noise bursts with pitch envelope — classic rattle
+  function rattlesnake(){
+    const ac = getCtx();
+    const rattleCount = 7;
+    const rateHz = 18; // rattles per second
+    for(let i=0; i<rattleCount; i++){
+      const t0 = ac.currentTime + i*(1/rateHz);
+      const dur = 0.03 + (i/rattleCount)*0.01; // slight crescendo in duration
+
+      // White noise burst
+      const samples = Math.ceil(ac.sampleRate * dur);
+      const buf = ac.createBuffer(1, samples, ac.sampleRate);
+      const d   = buf.getChannelData(0);
+      for(let j=0;j<samples;j++) d[j]=(Math.random()*2-1);
+      const src = ac.createBufferSource();
+
+      // Bandpass centered around "rattlesnake" range ~3-6kHz
+      const bp = ac.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 4000 + Math.random()*1200;
+      bp.Q.value = 2.5;
+
+      // Second bandpass for texture
+      const bp2 = ac.createBiquadFilter();
+      bp2.type = 'bandpass';
+      bp2.frequency.value = 2200;
+      bp2.Q.value = 1.8;
+
+      const gn = ac.createGain();
+      // Amplitude envelope: attack + decay per burst; overall envelope grows then fades
+      const peakVol = 0.25 + (i<rattleCount/2 ? i/rattleCount : (rattleCount-i)/rattleCount)*0.35;
+      gn.gain.setValueAtTime(0, t0);
+      gn.gain.linearRampToValueAtTime(peakVol, t0+0.004);
+      gn.gain.exponentialRampToValueAtTime(0.001, t0+dur);
+
+      src.buffer = buf;
+      src.connect(bp); bp.connect(bp2); bp2.connect(gn); gn.connect(ac.destination);
+      src.start(t0); src.stop(t0+dur+0.002);
+    }
+
+    // Add a low "hiss" tail
+    const hissDur = 0.4;
+    const hBuf = ac.createBuffer(1, Math.ceil(ac.sampleRate*hissDur), ac.sampleRate);
+    const hD   = hBuf.getChannelData(0);
+    for(let i=0;i<hD.length;i++) hD[i]=(Math.random()*2-1);
+    const hSrc = ac.createBufferSource();
+    const hBp  = ac.createBiquadFilter();
+    const hG   = ac.createGain();
+    hSrc.buffer = hBuf;
+    hBp.type = 'highpass'; hBp.frequency.value = 3000;
+    hG.gain.setValueAtTime(0.12, ac.currentTime);
+    hG.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+hissDur);
+    hSrc.connect(hBp); hBp.connect(hG); hG.connect(ac.destination);
+    hSrc.start(); hSrc.stop(ac.currentTime+hissDur);
+  }
+
+  return { caChing, rattlesnake };
+})();
+</script>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script type="text/babel">
+const {useState,useEffect,useCallback,useRef}=React;
+
+// ─── CONFIG ──────────────────────────────────────────────────
+const FIREBASE_CONFIG={
+  apiKey:"AIzaSyC7ZOLG8rfqT8R4TI187Z4MDddzXPnqqw8",
+  authDomain:"wwcc-az-cup-2026.firebaseapp.com",
+  databaseURL:"https://wwcc-az-cup-2026-default-rtdb.firebaseio.com",
+  projectId:"wwcc-az-cup-2026",
+  storageBucket:"wwcc-az-cup-2026.firebasestorage.app",
+  messagingSenderId:"347096949592",
+  appId:"1:347096949592:web:c270c071703aa976c27b2d",
+};
+const DB_PATH="golf_cup_2025_v4";
+
+// ─── COLORS ──────────────────────────────────────────────────
+const C={
+  green:"#1a7a1a",greenBg:"rgba(20,122,20,0.10)",greenBdr:"#1a7a1a",
+  red:"#c02020",  redBg:"rgba(192,32,32,0.10)",  redBdr:"#c02020",
+  gold:"#8a6a00", goldBg:"#fff8e0",              goldBdr:"#c8a820",
+  blue:"#1a40c0", purple:"#6a2a9a",
+  text:"#1a2a1a", textMid:"#3a5a3a", textSoft:"#7a9a7a",
+  bg:"#e8efe8",   card:"#ffffff",    cardAlt:"#f4f8f4",
+  border:"#d0e0d0",hdr:"#1e3a1e",   hdrText:"#e8f4e8",
+};
+
+// ─── PLAYERS ─────────────────────────────────────────────────
+const PLAYERS={
+  rick:   {name:"Rick Kinnahan", short:"Rick",    hcp:6.8,  team:"B"},
+  tommy:  {name:"Tommy Lee",     short:"Tommy",   hcp:15.8, team:"B"},
+  gary:   {name:"Gary Lindsay",  short:"Gary",    hcp:20.0, team:"B"},
+  morri:  {name:"Brian Morrison",short:"Morrison",hcp:22.4, team:"B"},
+  pfeifer:{name:"Brian Pfeifer", short:"Pfeifer", hcp:10.8, team:"A"},
+  ryan:   {name:"Ryan Ross",     short:"Ryan",    hcp:14.5, team:"A"},
+  rukus:  {name:"Rukus Esi",     short:"Rukus",   hcp:17.3, team:"A"},
+  taimour:{name:"Taimour Raja",  short:"Taimour", hcp:22.6, team:"A"},
+};
+const A_KEYS=["pfeifer","ryan","rukus","taimour"];
+const B_KEYS=["rick","tommy","gary","morri"];
+const TEAM_A={name:"TEAM CACTUS",       short:"CACTUS",emoji:"🌵",color:C.green,bg:C.greenBg,bdr:C.greenBdr};
+const TEAM_B={name:"TEAM CHILI PEPPERS",short:"CHILI", emoji:"🌶️",color:C.red,  bg:C.redBg,  bdr:C.redBdr};
+
+// ─── COURSES ─────────────────────────────────────────────────
+const COURSES={
+  wildfire:{name:"Wildfire",full:"Wildfire Golf Club",subtitle:"Faldo Course · Phoenix",par:71,holes:[
+    {h:1,par:4,hcp:7},{h:2,par:4,hcp:5},{h:3,par:3,hcp:17},{h:4,par:4,hcp:1},{h:5,par:4,hcp:15},
+    {h:6,par:4,hcp:9},{h:7,par:3,hcp:11},{h:8,par:4,hcp:13},{h:9,par:5,hcp:3},
+    {h:10,par:4,hcp:2},{h:11,par:5,hcp:14},{h:12,par:4,hcp:6},{h:13,par:4,hcp:8},{h:14,par:3,hcp:16},
+    {h:15,par:5,hcp:4},{h:16,par:4,hcp:12},{h:17,par:3,hcp:18},{h:18,par:4,hcp:10}]},
+  wekopa:{name:"We-Ko-Pa",full:"We-Ko-Pa Golf Club",subtitle:"Saguaro · Fort McDowell",par:71,holes:[
+    {h:1,par:4,hcp:5},{h:2,par:4,hcp:11},{h:3,par:4,hcp:9},{h:4,par:5,hcp:1},{h:5,par:3,hcp:15},
+    {h:6,par:4,hcp:7},{h:7,par:4,hcp:13},{h:8,par:5,hcp:3},{h:9,par:3,hcp:17},
+    {h:10,par:4,hcp:14},{h:11,par:3,hcp:18},{h:12,par:4,hcp:6},{h:13,par:4,hcp:8},{h:14,par:5,hcp:2},
+    {h:15,par:3,hcp:16},{h:16,par:4,hcp:12},{h:17,par:4,hcp:10},{h:18,par:4,hcp:4}]},
+  grayhawk:{name:"Grayhawk",full:"Grayhawk Golf Club",subtitle:"Raptor Course · Scottsdale",par:72,holes:[
+    {h:1,par:4,hcp:10},{h:2,par:4,hcp:16},{h:3,par:4,hcp:4},{h:4,par:5,hcp:2},{h:5,par:3,hcp:14},
+    {h:6,par:4,hcp:12},{h:7,par:5,hcp:8},{h:8,par:3,hcp:18},{h:9,par:4,hcp:6},
+    {h:10,par:4,hcp:9},{h:11,par:5,hcp:1},{h:12,par:4,hcp:5},{h:13,par:3,hcp:7},{h:14,par:4,hcp:13},
+    {h:15,par:4,hcp:11},{h:16,par:3,hcp:17},{h:17,par:4,hcp:15},{h:18,par:5,hcp:3}]},
+};
+
+const TOTAL_POINTS=22, SKINS_POT=160, RYDER_BET=100;
+const fmt=n=>n%1===0?String(n):n.toFixed(1);
+const $=n=>`$${Math.abs(n).toFixed(2)}`;
+const scoreColor=(net,par)=>net==null?C.textSoft:net<=par-2?C.blue:net===par-1?C.green:net===par?C.textMid:net===par+1?"#c04020":"#901010";
+const scoreBg=(net,par)=>net==null?C.cardAlt:net<=par-2?"#ddeeff":net===par-1?"#ddf5dd":net===par?C.card:net===par+1?"#fff0ee":"#fde8e8";
+
+// ─── POPS ────────────────────────────────────────────────────
+function calcPops(keys,holes,pct){
+  const minH=Math.min(...keys.map(k=>PLAYERS[k].hcp));
+  const res={};
+  keys.forEach(k=>{
+    const d=Math.round((PLAYERS[k].hcp-minH)*pct);
+    res[k]=holes.map(h=>d<=0?0:d<=18?(h.hcp<=d?1:0):(h.hcp<=d-18?2:1));
+  });
+  return res;
+}
+
+// ─── PAIRINGS ────────────────────────────────────────────────
+const STATIC_P={
+  r1m1:{sideA:["pfeifer","taimour"],sideB:["rick","morri"],  type:"pairs"},
+  r1m2:{sideA:["ryan","rukus"],     sideB:["tommy","gary"],  type:"pairs"},
+  r2m1:{sideA:["pfeifer","rukus"],  sideB:["rick","gary"],   type:"pairs"},
+  r2m2:{sideA:["ryan","taimour"],   sideB:["tommy","morri"], type:"pairs"},
+  r4m1:{sideA:["ryan"],    sideB:["rick"],   type:"singles"},
+  r4m2:{sideA:["pfeifer"], sideB:["tommy"],  type:"singles"},
+  r4m3:{sideA:["taimour"], sideB:["gary"],   type:"singles"},
+  r4m4:{sideA:["rukus"],   sideB:["morri"],  type:"singles"},
+  r5m1:{sideA:["pfeifer"], sideB:["rick"],   type:"singles"},
+  r5m2:{sideA:["ryan"],    sideB:["tommy"],  type:"singles"},
+  r5m3:{sideA:["rukus"],   sideB:["gary"],   type:"singles"},
+  r5m4:{sideA:["taimour"], sideB:["morri"],  type:"singles"},
+  r23net:{sideA:[],sideB:[],type:"bonus"},
+};
+const R3M=[
+  {id:"r3four",pts:1,  label:"Four-Ball",      type:"pairs"},
+  {id:"r3s1",  pts:1.5,label:"Singles Match 1", type:"singles"},
+  {id:"r3s2",  pts:1.5,label:"Singles Match 2", type:"singles"},
+];
+function getP(mid,r3P){
+  if(STATIC_P[mid])return STATIC_P[mid];
+  const r=R3M.find(m=>m.id===mid);if(!r)return null;
+  const d=r3P?.[mid]||{};return{sideA:d.sideA||[],sideB:d.sideB||[],type:r.type};
+}
+function mLabel(id,r3P){
+  const p=getP(id,r3P);
+  if(!p||p.type==="bonus"||(!p.sideA.length&&!p.sideB.length)){const r=R3M.find(m=>m.id===id);return r?r.label:"TBD";}
+  return`${p.sideA.map(k=>PLAYERS[k]?.short||k).join(" & ")} vs ${p.sideB.map(k=>PLAYERS[k]?.short||k).join(" & ")}`;
+}
+
+// ─── ROUNDS ──────────────────────────────────────────────────
+const ROUNDS=[
+  {id:1,key:"r1",label:"Round 1",short:"R1",course:"wildfire", type:"pairs",   matches:[{id:"r1m1",pts:1},{id:"r1m2",pts:1}]},
+  {id:2,key:"r2",label:"Round 2",short:"R2",course:"wekopa",   type:"pairs",   matches:[{id:"r2m1",pts:1},{id:"r2m2",pts:1}]},
+  {id:3,key:"r3",label:"Round 3",short:"R3",course:"wekopa",   type:"mixed",   matches:R3M.map(m=>({id:m.id,pts:m.pts}))},
+  {id:"bonus",key:"bonus",label:"R2+R3 Net",short:"NET",course:null,type:"bonus",matches:[{id:"r23net",pts:2}]},
+  {id:4,key:"r4",label:"Round 4",short:"R4",course:"grayhawk", type:"singles", matches:[{id:"r4m1",pts:1.5},{id:"r4m2",pts:1.5},{id:"r4m3",pts:1.5},{id:"r4m4",pts:1.5}]},
+  {id:5,key:"r5",label:"Round 5",short:"R5",course:"grayhawk", type:"singles", matches:[{id:"r5m1",pts:1.5},{id:"r5m2",pts:1.5},{id:"r5m3",pts:1.5},{id:"r5m4",pts:1.5}]},
+];
+const ROUND_MAP={r1:ROUNDS[0],r2:ROUNDS[1],r3:ROUNDS[2],r4:ROUNDS[4],r5:ROUNDS[5]};
+const ALL_M=ROUNDS.flatMap(r=>r.matches);
+
+// ─── MATCH PLAY ──────────────────────────────────────────────
+function calcMP(mid,hs,courseKey,r3P){
+  const p=getP(mid,r3P);
+  if(!p||p.type==="bonus"||!p.sideA.length||!p.sideB.length)return null;
+  const course=COURSES[courseKey];
+  const allK=[...p.sideA,...p.sideB];
+  const pct=p.type==="singles"?1.00:0.90;
+  const pops=calcPops(allK,course.holes,pct);
+  let ud=0,played=0;const hr=[];
+  for(let h=0;h<18;h++){
+    const aS=p.sideA.map(k=>{const g=hs?.[k]?.[h];return(g==null||g==="")? null:Number(g)-(pops[k]?.[h]??0);}).filter(v=>v!==null);
+    const bS=p.sideB.map(k=>{const g=hs?.[k]?.[h];return(g==null||g==="")? null:Number(g)-(pops[k]?.[h]??0);}).filter(v=>v!==null);
+    if(!aS.length||!bS.length){hr.push(null);continue;}
+    const aB=Math.min(...aS),bB=Math.min(...bS);
+    played++;if(aB<bB)ud++;else if(bB<aB)ud--;hr.push(ud);
+  }
+  const rem=18-played,abs=Math.abs(ud);
+  let status="AS",winner=null,isDormie=false,isClinched=false;
+  if(abs>rem&&played>0){
+    isClinched=true;winner=ud>0?"A":"B";
+    status=ud>0?`🌵 ${abs}&${rem}`:`🌶️ ${abs}&${rem}`;
+  }else if(played===18){
+    if(ud>0){winner="A";status="🌵 1UP";}else if(ud<0){winner="B";status="🌶️ 1UP";}else{winner="halved";status="HALVED";}
+  }else if(abs>0&&abs===rem&&played>0){isDormie=true;status=ud>0?`🌵 DORMIE ${abs}`:`🌶️ DORMIE ${abs}`;}
+  else if(ud!==0&&played>0){status=ud>0?`🌵 ${abs}UP`:`🌶️ ${abs}UP`;}
+  return{ud,played,rem,status,winner,hr,isDormie,isClinched,pops,p,pct};
+}
+
+// ─── NASSAU ──────────────────────────────────────────────────
+function calcNassau(mid,hs,courseKey,r3P,bet){
+  const p=getP(mid,r3P);
+  if(!p||!p.sideA.length||!p.sideB.length)return null;
+  const course=COURSES[courseKey];
+  const allK=[...p.sideA,...p.sideB];
+  const pct=p.type==="singles"?1.00:0.90;
+  const pops=calcPops(allK,course.holes,pct);
+  const net=(k,h)=>{const g=hs?.[k]?.[h];if(g==null||g==="")return null;return Number(g)-(pops[k]?.[h]??0);};
+  const best=(side,h)=>{const v=side.map(k=>net(k,h)).filter(v=>v!==null);return v.length?Math.min(...v):null;};
+  const hw=(h)=>{const a=best(p.sideA,h),b=best(p.sideB,h);if(a===null||b===null)return null;if(a<b)return"A";if(b<a)return"B";return"H";};
+  let fU=0,fP=0,bU=0,bP=0;
+  for(let h=0;h<9;h++){const w=hw(h);if(w===null)continue;fP++;if(w==="A")fU++;else if(w==="B")fU--;}
+  for(let h=9;h<18;h++){const w=hw(h);if(w===null)continue;bP++;if(w==="A")bU++;else if(w==="B")bU--;}
+  const seg=(u,pl,n)=>{
+    const r=n-pl,ab=Math.abs(u);
+    if(ab>r&&pl>0)return{w:u>0?"A":"B",s:u>0?`🌵 ${ab}&${r}`:`🌶️ ${ab}&${r}`,done:true};
+    if(pl===n)return{w:u>0?"A":u<0?"B":"H",s:u>0?"🌵 1UP":u<0?"🌶️ 1UP":"HALVED",done:true};
+    if(ab===r&&pl>0&&r>0)return{w:null,s:u>0?`🌵 DORMIE ${ab}`:`🌶️ DORMIE ${ab}`,done:false};
+    if(u===0)return{w:null,s:"AS",done:false};
+    return{w:null,s:u>0?`🌵 ${ab}UP`:`🌶️ ${ab}UP`,done:false};
+  };
+  const F=seg(fU,fP,9),B=seg(bU,bP,9),T=seg(fU+bU,fP+bP,18);
+  const pay=(s,a)=>{if(!a||!s.done||s.w==="H")return 0;return s.w==="A"?Number(a):-Number(a);};
+  return{F,B,T,net:pay(F,bet?.front)+pay(B,bet?.back)+pay(T,bet?.total)};
+}
+
+// ─── VEGAS ───────────────────────────────────────────────────
+function calcVegas(mid,hs,courseKey,r3P,per){
+  if(!per)return null;
+  const p=getP(mid,r3P);
+  if(!p||p.sideA.length!==2||p.sideB.length!==2)return null;
+  const course=COURSES[courseKey];
+  const allK=[...p.sideA,...p.sideB];
+  const pops=calcPops(allK,course.holes,0.90);
+  const netOf=(k,h)=>{const g=hs?.[k]?.[h];if(g==null||g==="")return null;return Number(g)-(pops[k]?.[h]??0);};
+  const vegN=(side,h)=>{const sc=side.map(k=>netOf(k,h)).filter(v=>v!==null);if(sc.length<2)return null;const[lo,hi]=[...sc].sort((a,b)=>a-b);return lo*10+hi;};
+  let tot=0;const holes=[];
+  for(let h=0;h<18;h++){
+    const a=vegN(p.sideA,h),b=vegN(p.sideB,h);
+    if(a===null||b===null){holes.push(null);continue;}
+    const d=b-a;tot+=d;holes.push({h,hNum:course.holes[h].h,a,b,d,cum:tot});
+  }
+  return{holes,tot,net:tot*Number(per),per:Number(per)};
+}
+
+// ─── SKINS ───────────────────────────────────────────────────
+function calcSkins(allHS,courseKey){
+  const course=COURSES[courseKey];
+  const allK=Object.keys(PLAYERS);
+  const pops=calcPops(allK,course.holes,0.90);
+  const skins=[];
+  for(let h=0;h<18;h++){
+    const par=course.holes[h].par;
+    const ns=allK.map(k=>{
+      let g=null;Object.values(allHS||{}).forEach(ms=>{if(ms?.[k]?.[h]!=null)g=ms[k][h];});
+      if(g==null)return null;return{k,net:Number(g)-(pops[k]?.[h]??0)};
+    }).filter(Boolean);
+    if(!ns.length)continue;
+    const mn=Math.min(...ns.map(s=>s.net));
+    if(mn>=par)continue;
+    const w=ns.filter(s=>s.net===mn);
+    if(w.length===1)skins.push({hIdx:h,hole:course.holes[h].h,player:w[0].k,net:mn,par});
+  }
+  return skins;
+}
+
+// ─── SNAKE STATE (fully computed from putts, no stored events) ─
+// multiOrders = { holeIdx: [playerKey,...] } — stored ordering for multi-3-putt holes.
+// On any hole, the snake changes hands ONCE PER 3-PUTTER in sequence order, doubling each time.
+// The last player in the sequence ends up holding it. Deleting a putt auto-reverts everything.
+// Returns { owner, amount, transfers:[{hole,owner,amount,fromPlayer,toPlayer}] }
+function calcSnakeState(allKeys, puttData, initBet, multiOrders, mode="double") {
+  const init = Number(initBet || 0);
+  if (!init) return null;
+  let owner = null;
+  let amount = 0;
+  const transfers = [];
+
+  for (let h = 0; h < 18; h++) {
+    const threePutters = allKeys.filter(k => Number(puttData?.[k]?.[h] || 0) >= 3);
+    if (!threePutters.length) continue;
+
+    // Determine the sequence of 3-putters this hole.
+    // For a single player: sequence = [player].
+    // For multiple: use stored drag order if set, else default to allKeys order (pending user input).
+    let sequence;
+    if (threePutters.length === 1) {
+      sequence = threePutters;
+    } else {
+      const stored = multiOrders?.[h];
+      if (stored && stored.length >= threePutters.length) {
+        // Use stored order — user has confirmed the sequence
+        sequence = stored;
+      } else {
+        // Order not yet set — use allKeys order as a placeholder
+        sequence = [...threePutters].sort((a,b) => allKeys.indexOf(a) - allKeys.indexOf(b));
+      }
+    }
+
+    // Snake changes hands once per player in the sequence.
+    // mode "double" (default): bet doubles each transfer.
+    // mode "increment": bet increases by init each transfer ($5→$10→$15...).
+    sequence.forEach(player => {
+      let newAmt;
+      if(mode === "increment"){
+        // Incremental: starts at init, adds init each transfer
+        newAmt = init * (transfers.length + 1);
+      } else {
+        // Exponential doubling (default)
+        newAmt = transfers.length === 0 ? init : transfers[transfers.length - 1].amount * 2;
+      }
+      owner = player;
+      amount = newAmt;
+      transfers.push({ hole: h, owner: player, amount: newAmt, players: threePutters, multi: threePutters.length > 1 });
+    });
+  }
+
+  if (!transfers.length) return { owner: null, amount: 0, transfers: [] };
+  return { owner, amount, transfers };
+}
+
+// ─── LEDGER ──────────────────────────────────────────────────
+function buildLedger(holeScores,puttDataAll,sideBets,r3P,effResults){
+  const L={};Object.keys(PLAYERS).forEach(k=>{L[k]={total:0,entries:[]};});
+  const add=(k,e)=>{if(!L[k])return;L[k].total+=e.amount;L[k].entries.push(e);};
+
+  ROUNDS.filter(r=>r.course).forEach(round=>{
+    round.matches.forEach(m=>{
+      const sb=sideBets?.[m.id]||{};
+      const hs=holeScores?.[round.key]?.[m.id]||{};
+      const p=getP(m.id,r3P);
+      if(!p||!p.sideA.length||!p.sideB.length)return;
+      const lbl=mLabel(m.id,r3P);
+      const allK=[...p.sideA,...p.sideB];
+
+      if(sb.nassauOn&&sb.nassau){
+        const n=calcNassau(m.id,hs,round.course,r3P,sb.nassau);
+        if(n){
+          [{s:n.F,a:sb.nassau?.front,name:"Nassau Front"},{s:n.B,a:sb.nassau?.back,name:"Nassau Back"},{s:n.T,a:sb.nassau?.total,name:"Nassau Total"}].forEach(({s,a,name})=>{
+            if(!a||!s.done||s.w==="H")return;
+            const w=s.w==="A"?p.sideA:p.sideB,l=s.w==="A"?p.sideB:p.sideA;
+            w.forEach(k=>add(k,{rl:round.label,lbl,bet:name,amount:Number(a)}));
+            l.forEach(k=>add(k,{rl:round.label,lbl,bet:name,amount:-Number(a)}));
+          });
+        }
+      }
+      if(sb.vegasOn&&sb.vegas?.per){
+        const v=calcVegas(m.id,hs,round.course,r3P,sb.vegas?.per);
+        if(v&&v.net!==0){
+          const w=v.net>0?p.sideA:p.sideB,l=v.net>0?p.sideB:p.sideA;
+          const abs=Math.abs(v.net);
+          w.forEach(k=>add(k,{rl:round.label,lbl,bet:"Vegas",amount:abs}));
+          l.forEach(k=>add(k,{rl:round.label,lbl,bet:"Vegas",amount:-abs}));
+        }
+      }
+      if(sb.snakeOn&&sb.snake?.bet){
+        // Build per-player putt map from stored puttData: {roundKey:{matchId:{playerKey:{holeIdx:putts}}}}
+        const matchPd={};
+        allK.forEach(k=>{matchPd[k]=puttDataAll?.[round.key]?.[m.id]?.[k]||{};});
+        const snakeSt=calcSnakeState(allK,matchPd,sb.snake?.bet,sb.snake?.multiOrders,sb.snake?.mode||'double');
+        if(snakeSt&&snakeSt.owner&&snakeSt.amount>0){
+          const others=allK.filter(k=>k!==snakeSt.owner);
+          others.forEach(k=>add(k,{rl:round.label,lbl,bet:"Snake 🐍",amount:snakeSt.amount}));
+          add(snakeSt.owner,{rl:round.label,lbl,bet:"Snake 🐍",amount:-(snakeSt.amount*others.length)});
+        }
+      }
+    });
+
+    // Skins — $160 pot, 8 players × $20 buy-in per round.
+    // Each skin pays out (pot / numSkins) to the winner.
+    // Accounting: deduct $20 buy-in from every player once per round,
+    // then credit each skin winner with (pot / numSkins).
+    const skins=calcSkins(holeScores?.[round.key]||{},round.course);
+    if(skins.length){
+      const buyIn=SKINS_POT/8;           // $20 per player
+      const skinPay=SKINS_POT/skins.length; // payout per skin winner
+      // Buy-in: every player pays once this round
+      Object.keys(PLAYERS).forEach(k=>{
+        add(k,{rl:round.label,lbl:`${round.label} Skins`,bet:"Buy-in",amount:-buyIn});
+      });
+      // Skin winnings: winner of each skin gets skinPay
+      skins.forEach(s=>{
+        add(s.player,{rl:round.label,lbl:`${round.label} Skins`,bet:`Skin H${s.hole} win`,amount:skinPay});
+      });
+    }
+  });
+
+  // Ryder Cup
+  const tots=ALL_M.reduce((a,m)=>{const w=effResults?.[m.id];if(w==="A")a.A+=m.pts;else if(w==="B")a.B+=m.pts;else if(w==="halved"){a.A+=m.pts/2;a.B+=m.pts/2;}return a;},{A:0,B:0});
+  const rW=tots.A>=11?"A":tots.B>=11?"B":null;
+  if(rW){
+    const wT=rW==="A"?A_KEYS:B_KEYS,lT=rW==="A"?B_KEYS:A_KEYS;
+    wT.forEach(k=>add(k,{rl:"Overall",lbl:"Ryder Cup",bet:"Team Bet",amount:RYDER_BET}));
+    lT.forEach(k=>add(k,{rl:"Overall",lbl:"Ryder Cup",bet:"Team Bet",amount:-RYDER_BET}));
+  }
+  return L;
+}
+
+// ─── SETTLEMENT ──────────────────────────────────────────────
+function settle(L){
+  const bal=Object.entries(L).map(([k,v])=>({k,b:v.total}));
+  const cr=bal.filter(b=>b.b>0.005).sort((a,b)=>b.b-a.b);
+  const db=bal.filter(b=>b.b<-0.005).sort((a,b)=>a.b-b.b);
+  const txns=[];
+  const cB=cr.map(c=>({...c,r:c.b})),dB=db.map(d=>({...d,r:Math.abs(d.b)}));
+  let ci=0,di=0;
+  while(ci<cB.length&&di<dB.length){
+    const c=cB[ci],d=dB[di],amt=Math.min(c.r,d.r);
+    if(amt>0.005)txns.push({from:d.k,to:c.k,amount:amt});
+    c.r-=amt;d.r-=amt;if(c.r<0.005)ci++;if(d.r<0.005)di++;
+  }
+  return txns;
+}
+
+
+
+// ─── FIREBASE ────────────────────────────────────────────────
+function useFirebase(){
+  const [ready,setR]=useState(false);
+  const [err,setErr]=useState(null);
+  const db=useRef(null);
+  useEffect(()=>{
+    try{if(!firebase.apps.length)firebase.initializeApp(FIREBASE_CONFIG);else firebase.app();db.current=firebase.database();setR(true);}
+    catch(e){setErr(e.message);}
+  },[]);
+  const listen=useCallback(cb=>{
+    if(!db.current)return()=>{};
+    const ref=db.current.ref(DB_PATH);
+    const h=s=>{cb(s.val()||{});};ref.on("value",h);return()=>ref.off("value",h);
+  },[ready]);
+  const save=useCallback(async d=>{if(!db.current)throw new Error("not ready");await db.current.ref(DB_PATH).set(d);},[ready]);
+  return{ready,err,listen,save};
+}
+
+// ─── MAIN APP ────────────────────────────────────────────────
+function App(){
+  const [tab,setTab]=useState("board");
+  const [matchRes,setMatchResState]=useState({});
+  const [hs,setHs]=useState({});       // holeScores
+  const [pd,setPd]=useState({});       // puttData
+  const [r3P,setR3P]=useState({});     // r3Pairings
+  const [sb,setSb]=useState({});       // sideBets
+  const [sync,setSync]=useState("…");
+  const {ready,err,listen,save}=useFirebase();
+  const R={mr:useRef({}),hs:useRef({}),pd:useRef({}),r3p:useRef({}),sb:useRef({})};
+  const tmr=useRef(null),saving=useRef(false);
+
+  const sched=useCallback(()=>{
+    if(tmr.current)clearTimeout(tmr.current);
+    tmr.current=setTimeout(async()=>{
+      if(saving.current){sched();return;}
+      saving.current=true;setSync("⟳");
+      try{await save({mr:R.mr.current,hs:R.hs.current,pd:R.pd.current,r3p:R.r3p.current,sb:R.sb.current,ts:Date.now()});setSync("✓");setTimeout(()=>setSync("●"),2000);}
+      catch{setSync("!");}finally{saving.current=false;}
+    },700);
+  },[save]);
+
+  useEffect(()=>{
+    if(!ready)return;setSync("●");
+    return listen(data=>{
+      if(saving.current)return;
+      const mr=data.mr||{},hsd=data.hs||{},pdd=data.pd||{},r3pd=data.r3p||{},sbd=data.sb||{};
+      R.mr.current=mr;R.hs.current=hsd;R.pd.current=pdd;R.r3p.current=r3pd;R.sb.current=sbd;
+      setMatchResState(mr);setHs(hsd);setPd(pdd);setR3P(r3pd);setSb(sbd);setSync("●");
+    });
+  },[ready,listen]);
+
+  // Auto-compute match winners from hole scores
+  const effRes=useRef({});
+  const [totals,setTotals]=useState({A:0,B:0});
+  useEffect(()=>{
+    const auto={};
+    ROUNDS.filter(r=>r.course).forEach(round=>{
+      round.matches.forEach(m=>{
+        const mp=calcMP(m.id,hs?.[round.key]?.[m.id]||{},round.course,r3P);
+        if(mp?.winner)auto[m.id]=mp.winner;
+      });
+    });
+    const merged={...auto,...matchRes};
+    effRes.current=merged;
+    const t=ALL_M.reduce((a,m)=>{const w=merged[m.id];if(w==="A")a.A+=m.pts;else if(w==="B")a.B+=m.pts;else if(w==="halved"){a.A+=m.pts/2;a.B+=m.pts/2;}return a;},{A:0,B:0});
+    setTotals(t);
+  },[hs,r3P,matchRes]);
+
+  const setMR=useCallback((id,w)=>{
+    setMatchResState(prev=>{const n={...prev,[id]:w===prev[id]?null:w};R.mr.current=n;sched();return n;});
+  },[sched]);
+  const setScore=useCallback((rk,mid,pk,hi,v)=>{
+    setHs(prev=>{const r={...(prev[rk]||{})},m={...(r[mid]||{})},p={...(m[pk]||{})};
+      if(v===undefined||v==="")delete p[hi];else p[hi]=Number(v);
+      m[pk]=p;r[mid]=m;const n={...prev,[rk]:r};R.hs.current=n;sched();return n;});
+  },[sched]);
+  const setPutts=useCallback((rk,mid,pk,hi,v)=>{
+    setPd(prev=>{const r={...(prev[rk]||{})},m={...(r[mid]||{})},p={...(m[pk]||{})};
+      if(v===undefined||v==="")delete p[hi];else p[hi]=Number(v);
+      m[pk]=p;r[mid]=m;const n={...prev,[rk]:r};R.pd.current=n;sched();return n;});
+  },[sched]);
+  const setR3Pair=useCallback((mid,side,pl)=>{
+    setR3P(prev=>{const n={...prev,[mid]:{...(prev[mid]||{}),[side]:pl}};R.r3p.current=n;sched();return n;});
+  },[sched]);
+  const updateSB=useCallback((mid,patch)=>{
+    setSb(prev=>{const n={...prev,[mid]:{...(prev[mid]||{}),...patch}};R.sb.current=n;sched();return n;});
+  },[sched]);
+  // Snake only stores multiOrders (tie-breaking) — all state derived live from puttData
+  const updateSnakeOrder=useCallback((mid,holeIdx,orderedKeys)=>{
+    setSb(prev=>{
+      const cur=prev[mid]||{},snake=cur.snake||{};
+      const multiOrders={...(snake.multiOrders||{}),[holeIdx]:orderedKeys};
+      const n={...prev,[mid]:{...cur,snake:{...snake,multiOrders}}};
+      R.sb.current=n;sched();return n;
+    });
+  },[sched]);
+
+  const rem=ALL_M.filter(m=>!effRes.current[m.id]).reduce((s,m)=>s+m.pts,0);
+  const leader=totals.A>totals.B?"A":totals.B>totals.A?"B":null;
+  const margin=Math.abs(totals.A-totals.B);
+  const clinched=leader&&margin>rem;
+  const ledger=buildLedger(hs,pd,sb,r3P,effRes.current);
+  const txns=settle(ledger);
+
+  const TABS=[
+    {id:"board",icon:"⛳",label:"Board"},
+    {id:"r1",icon:"1",label:"R1"},{id:"r2",icon:"2",label:"R2"},{id:"r3",icon:"3",label:"R3"},
+    {id:"r4",icon:"4",label:"R4"},{id:"r5",icon:"5",label:"R5"},
+    {id:"skins",icon:"💰",label:"Skins"},
+    {id:"money",icon:"💵",label:"Money"},
+    {id:"info",icon:"ℹ️",label:"Info"},
+  ];
+
+  if(err)return<div style={{padding:40,textAlign:"center",color:C.red,fontSize:16}}>⚠️ {err}</div>;
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,paddingBottom:64}}>
+      {/* HEADER */}
+      <div style={{background:C.hdr,padding:"14px 16px 12px",safe:"top"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontSize:11,letterSpacing:5,color:"#8a9a60",fontWeight:600}}>✦ THE CUP ✦</div>
+            <div style={{fontSize:22,fontWeight:800,color:C.hdrText,letterSpacing:1,marginTop:2}}>SCOREBOARD</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:11,color:sync==="●"?"#4a9a4a":sync==="⟳"?"#c8a820":"#c04020",fontWeight:700}}>{sync} {sync==="●"?"LIVE":sync==="⟳"?"SAVING":sync==="✓"?"SAVED":"ERROR"}</div>
+            <div style={{fontSize:9,color:"#5a7a5a",marginTop:1}}>22 PTS · 11 TO WIN</div>
+          </div>
+        </div>
+
+        {/* Score Banner */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:8,marginTop:12}}>
+          {[TEAM_A,TEAM_B].map((team,i)=>{
+            const side=i===0?"A":"B",score=i===0?totals.A:totals.B,isL=leader===side;
+            return(<div key={team.name} style={{background:isL?"rgba(255,255,255,0.15)":"rgba(255,255,255,0.05)",borderRadius:12,padding:"10px 8px",textAlign:"center",border:isL?"2px solid rgba(255,255,255,0.3)":"2px solid transparent"}}>
+              <div style={{fontSize:10,color:isL?"#c8e8c8":"#7a9a7a",fontWeight:700,letterSpacing:1}}>{team.emoji} {team.short}</div>
+              <div style={{fontSize:42,fontWeight:900,color:isL?"#ffffff":"#a0b8a0",lineHeight:1,marginTop:2}}>{fmt(score)}</div>
+            </div>);
+          })}
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+            <div style={{fontSize:13,color:"#4a6a4a",fontWeight:700}}>VS</div>
+            <div style={{fontSize:10,color:"#3a5a3a",marginTop:2}}>{rem>0?`${fmt(rem)} left`:"DONE"}</div>
+          </div>
+        </div>
+
+        {/* Status */}
+        {(clinched||leader)&&<div style={{marginTop:10,padding:"7px 12px",background:clinched?"rgba(40,160,40,0.25)":"rgba(200,168,32,0.2)",borderRadius:10,textAlign:"center",fontSize:13,fontWeight:800,color:clinched?"#7ef07e":"#f0e870"}}>
+          {clinched?`🏆 ${(leader==="A"?TEAM_A:TEAM_B).name} WINS! $100 each!`:`${(leader==="A"?TEAM_A:TEAM_B).name} leads by ${fmt(margin)}`}
+        </div>}
+      </div>
+
+      {/* CONTENT */}
+      <div className="content">
+        {tab==="board"&&<BoardTab rounds={ROUNDS} effRes={effRes.current} setMR={setMR} hs={hs} r3P={r3P} sb={sb} totals={totals}/>}
+        {["r1","r2","r3","r4","r5"].includes(tab)&&(
+          <RoundTab rc={ROUND_MAP[tab]} effRes={effRes.current} setMR={setMR}
+            hs={hs[tab]||{}} pd={pd[tab]||{}}
+            onScore={(mid,pk,hi,v)=>setScore(tab,mid,pk,hi,v)}
+            onPutts={(mid,pk,hi,v)=>setPutts(tab,mid,pk,hi,v)}
+            r3P={r3P} setR3Pair={setR3Pair}
+            sb={sb} updateSB={updateSB} updateSnakeOrder={updateSnakeOrder}
+            ledger={ledger}/>
+        )}
+        {tab==="skins"&&<SkinsTab hs={hs}/>}
+        {tab==="money"&&<MoneyTab ledger={ledger} txns={txns} totals={totals}/>}
+        {tab==="info"&&<InfoTab r3P={r3P}/>}
+      </div>
+
+      {/* TAB BAR */}
+      <div className="tab-bar">
+        {TABS.map(t=>(
+          <button key={t.id} className={`tab-btn${tab===t.id?" active":""}`} onClick={()=>setTab(t.id)}>
+            <span className="tab-icon">{t.icon}</span>
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── BOARD TAB ───────────────────────────────────────────────
+function BoardTab({rounds,effRes,setMR,hs,r3P,sb,totals}){
+  return(<>
+    {rounds.map(round=>{
+      const isBonus=round.id==="bonus";
+      const rPts=round.matches.reduce((s,m)=>{const w=effRes[m.id];if(w==="A")return{...s,A:s.A+m.pts};if(w==="B")return{...s,B:s.B+m.pts};if(w==="halved")return{...s,A:s.A+m.pts/2,B:s.B+m.pts/2};return s;},{A:0,B:0});
+      return(
+        <div key={round.id} className="card">
+          <div style={{padding:"10px 14px",background:isBonus?C.goldBg:C.cardAlt,borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:800,color:isBonus?C.gold:C.textMid}}>{isBonus?"🎯 NET SCORE BONUS":round.label}</div>
+              {round.course&&<div style={{fontSize:11,color:C.textSoft,marginTop:1}}>{COURSES[round.course].name}</div>}
+            </div>
+            {Object.values(rPts).some(v=>v>0)&&<div style={{fontSize:16,fontWeight:800,color:C.textMid}}>{fmt(rPts.A)} – {fmt(rPts.B)}</div>}
+          </div>
+          {round.matches.map((m,mi)=>{
+            const mp=!isBonus&&round.course?calcMP(m.id,hs?.[round.key]?.[m.id]||{},round.course,r3P):null;
+            const res=effRes[m.id];
+            const bets=[sb?.[m.id]?.nassauOn?"Nassau":null,sb?.[m.id]?.vegasOn?"Vegas":null,sb?.[m.id]?.snakeOn?"🐍":null].filter(Boolean);
+            return(
+              <div key={m.id} style={{borderTop:mi>0?`1px solid ${C.border}`:"none",padding:"10px 14px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:700,color:C.text}}>{mLabel(m.id,r3P)}</div>
+                    {bets.length>0&&<div style={{fontSize:10,color:C.purple,marginTop:1}}>{bets.join(" · ")}</div>}
+                  </div>
+                  {mp&&mp.played>0&&(
+                    <div className="status-badge" style={{background:mp.isDormie?C.goldBg:mp.ud===0?C.goldBg:mp.ud>0?C.greenBg:C.redBg,color:mp.isDormie?C.gold:mp.ud===0?C.gold:mp.ud>0?C.green:C.red,border:`1.5px solid ${mp.isDormie?C.goldBdr:mp.ud===0?C.goldBdr:mp.ud>0?C.greenBdr:C.redBdr}`}}>
+                      {mp.status}
+                    </div>
+                  )}
+                </div>
+                {mp?.winner&&<div style={{padding:"5px 10px",background:mp.winner==="A"?C.greenBg:mp.winner==="B"?C.redBg:C.goldBg,borderRadius:8,textAlign:"center",fontSize:12,fontWeight:800,color:mp.winner==="A"?C.green:mp.winner==="B"?C.red:C.gold,marginBottom:6}}>
+                  {mp.winner==="A"?`✅ ${TEAM_A.name} WINS`:mp.winner==="B"?`✅ ${TEAM_B.name} WINS`:"🤝 HALVED"}
+                </div>}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 48px 1fr",gap:6}}>
+                  <button className="btn btn-sm" onClick={()=>setMR(m.id,"A")} style={{background:res==="A"?C.greenBg:"#f4f8f4",border:`2px solid ${res==="A"?C.greenBdr:C.border}`,color:res==="A"?C.green:C.textMid}}>
+                    {res==="A"?"✓ WIN":TEAM_A.emoji+" "+TEAM_A.short}
+                  </button>
+                  <div style={{textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2}}>
+                    <div style={{fontSize:11,color:C.textSoft,fontWeight:700}}>{m.pts}pt</div>
+                    <button onClick={()=>setMR(m.id,"halved")} style={{background:res==="halved"?C.goldBg:"transparent",border:`1px solid ${res==="halved"?C.goldBdr:C.border}`,borderRadius:6,padding:"3px 4px",fontSize:9,color:res==="halved"?C.gold:C.textSoft,fontWeight:700}}>½</button>
+                  </div>
+                  <button className="btn btn-sm" onClick={()=>setMR(m.id,"B")} style={{background:res==="B"?C.redBg:"#f4f8f4",border:`2px solid ${res==="B"?C.redBdr:C.border}`,color:res==="B"?C.red:C.textMid}}>
+                    {res==="B"?"✓ WIN":TEAM_B.emoji+" "+TEAM_B.short}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    })}
+  </>);
+}
+
+// ─── ROUND TAB ───────────────────────────────────────────────
+function RoundTab({rc,effRes,setMR,hs,pd,onScore,onPutts,r3P,setR3Pair,sb,updateSB,updateSnakeOrder,ledger}){
+  const [selMatch,setSelMatch]=useState(null);
+  const course=COURSES[rc.course];
+  const isR3=rc.key==="r3";
+
+  return(<>
+    {/* Course header */}
+    <div className="card" style={{margin:0,marginBottom:12}}>
+      <div style={{padding:"12px 14px",background:C.hdr}}>
+        <div style={{fontSize:11,color:"#8a9a60",fontWeight:600,letterSpacing:2}}>{rc.label.toUpperCase()}</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.hdrText,marginTop:2}}>{course.full}</div>
+        <div style={{fontSize:11,color:"#5a7a5a",marginTop:1}}>{course.subtitle} · Par {course.par}</div>
+      </div>
+    </div>
+
+    {isR3&&<R3Setup r3P={r3P} setR3Pair={setR3Pair}/>}
+
+    {rc.matches.map(m=>{
+      const p=getP(m.id,r3P);
+      const hasP=p&&p.sideA.length>0&&p.sideB.length>0;
+      const mhs=hs?.[m.id]||{};
+      const mpd=pd?.[m.id]||{};
+      const mp=hasP?calcMP(m.id,mhs,rc.course,r3P):null;
+      const res=effRes[m.id];
+      const msb=sb?.[m.id]||{};
+      const r3m=R3M.find(x=>x.id===m.id);
+      const isOpen=selMatch===m.id;
+      const isBonus=m.id==="r23net";
+
+      // Nassau/Vegas live summary
+      let nassLine=null,vegLine=null;
+      if(msb.nassauOn&&hasP){
+        const n=calcNassau(m.id,mhs,rc.course,r3P,msb.nassau);
+        if(n)nassLine=`F:${n.F.s} B:${n.B.s} T:${n.T.s}${n.net!==0?" · "+(n.net>0?"🌵":"🌶️")+" "+$(Math.abs(n.net)):""}`;
+      }
+      if(msb.vegasOn&&hasP){
+        const v=calcVegas(m.id,mhs,rc.course,r3P,msb.vegas?.per);
+        if(v)vegLine=`Vegas: ${v.tot>0?"+":""}${v.tot}pts · ${v.net>0?"🌵":"🌶️"} ${$(Math.abs(v.net))}`;
+      }
+
+      return(
+        <div key={m.id} className="card">
+          {/* Match header */}
+          <div style={{padding:"12px 14px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:800,color:C.text}}>{mLabel(m.id,r3P)}</div>
+                <div style={{fontSize:10,color:C.textSoft,marginTop:1}}>{r3m?r3m.label:rc.type==="pairs"?"2v2 Match":"Singles"} · {m.pts}pt</div>
+                {nassLine&&<div style={{fontSize:10,color:C.gold,fontWeight:700,marginTop:3}}>{nassLine}</div>}
+                {vegLine&&<div style={{fontSize:10,color:C.purple,fontWeight:700,marginTop:1}}>{vegLine}</div>}
+              </div>
+              {mp&&mp.played>0&&(
+                <div className="match-pill" style={{background:mp.isDormie?C.goldBg:mp.ud===0?C.goldBg:mp.ud>0?C.greenBg:C.redBg,color:mp.isDormie?C.gold:mp.ud===0?C.gold:mp.ud>0?C.green:C.red,border:`2px solid ${mp.isDormie?C.goldBdr:mp.ud===0?C.goldBdr:mp.ud>0?C.greenBdr:C.redBdr}`,flexShrink:0}}>
+                  {mp.status}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Auto result */}
+          {mp?.winner&&<div style={{padding:"8px 14px",background:mp.winner==="A"?C.greenBg:mp.winner==="B"?C.redBg:C.goldBg,textAlign:"center",fontSize:13,fontWeight:800,color:mp.winner==="A"?C.green:mp.winner==="B"?C.red:C.gold}}>
+            {mp.winner==="A"?`✅ ${TEAM_A.name} WINS`:mp.winner==="B"?`✅ ${TEAM_B.name} WINS`:"🤝 HALVED — auto-scored"}
+          </div>}
+
+          {/* Result buttons */}
+          <div style={{padding:"10px 14px",background:C.card}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 48px 1fr",gap:6}}>
+              <button className="btn btn-sm" onClick={()=>setMR(m.id,"A")} style={{background:res==="A"?C.greenBg:C.cardAlt,border:`2px solid ${res==="A"?C.greenBdr:C.border}`,color:res==="A"?C.green:C.textMid}}>
+                {TEAM_A.emoji} {res==="A"?"✓ WIN":TEAM_A.short}
+              </button>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.textSoft}}>{m.pts}pt</div>
+                <button onClick={()=>setMR(m.id,"halved")} style={{padding:"3px 6px",background:res==="halved"?C.goldBg:"transparent",border:`1px solid ${res==="halved"?C.goldBdr:C.border}`,borderRadius:6,fontSize:9,color:res==="halved"?C.gold:C.textSoft,fontWeight:700}}>½</button>
+              </div>
+              <button className="btn btn-sm" onClick={()=>setMR(m.id,"B")} style={{background:res==="B"?C.redBg:C.cardAlt,border:`2px solid ${res==="B"?C.redBdr:C.border}`,color:res==="B"?C.red:C.textMid}}>
+                {TEAM_B.emoji} {res==="B"?"✓ WIN":TEAM_B.short}
+              </button>
+            </div>
+          </div>
+
+          {/* Side bets + scorecard toggle */}
+          {!isBonus&&hasP&&(
+            <div style={{padding:"8px 14px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
+              <button className="btn-xs btn" onClick={()=>setSelMatch(isOpen?null:m.id)} style={{flex:1,background:isOpen?"#e8f0e8":C.cardAlt,border:`1px solid ${C.border}`,color:C.textMid}}>
+                {isOpen?"▲ Close":"📋 Scorecard"}
+              </button>
+            </div>
+          )}
+          {!isBonus&&hasP&&<SideBetPanel mid={m.id} type={p.type} sb={sb} updateSB={updateSB}/>}
+          {msb.snakeOn&&hasP&&p.type==="pairs"&&(
+            <SnakeTracker mid={m.id} allKeys={[...p.sideA,...p.sideB]} sb={sb} mpd={mpd} updateSnakeOrder={updateSnakeOrder}/>
+          )}
+
+          {/* Scorecard */}
+          {isOpen&&hasP&&(
+            <HoleScorecard mid={m.id} courseKey={rc.course} mhs={mhs} mpd={mpd}
+              onScore={(pk,hi,v)=>onScore(m.id,pk,hi,v)}
+              onPutts={(pk,hi,v)=>onPutts(m.id,pk,hi,v)}
+              mp={mp} r3P={r3P} showPutts={msb.snakeOn}
+              sb={sb} ledger={ledger}/>
+          )}
+        </div>
+      );
+    })}
+  </>);
+}
+
+// ─── HOLE SCORECARD (mobile-first: hole by hole) ─────────────
+function HoleScorecard({mid,courseKey,mhs,mpd,onScore,onPutts,mp,r3P,showPutts,sb,ledger}){
+  const course=COURSES[courseKey];
+  const p=getP(mid,r3P);
+  if(!p||!p.sideA.length||!p.sideB.length)return null;
+  const allK=[...p.sideA,...p.sideB];
+  const pct=p.type==="singles"?1.00:0.90;
+  const pops=calcPops(allK,course.holes,pct);
+  const [viewMode,setViewMode]=useState("hole"); // "hole" | "card"
+  const [curHole,setCurHole]=useState(0); // 0-17 index
+
+  const getG=(k,h)=>mhs?.[k]?.[h]??"";
+  const getP2=(k,h)=>mpd?.[k]?.[h]??"";
+  const netOf=(k,h)=>{const g=getG(k,h);if(g===""||isNaN(g))return null;return Number(g)-(pops[k]?.[h]??0);};
+  const popStr=allK.map(k=>{const d=Math.round((PLAYERS[k].hcp-Math.min(...allK.map(x=>PLAYERS[x].hcp)))*pct);return`${PLAYERS[k].short}:${d===0?"scratch":"+"+d}`;}).join(" · ");
+
+  // Vegas + Snake
+  const msb=sb?.[mid]||{};
+  const vegasData=msb.vegasOn?calcVegas(mid,mhs,courseKey,r3P,msb.vegas?.per):null;
+  // Snake: fully computed from mpd (match putt data) — reverts automatically when scores deleted
+  const snakeState=msb.snakeOn?calcSnakeState(allK,mpd,Number(msb.snake?.bet||0),msb.snake?.multiOrders||{},msb.snake?.mode||'double'):null;
+  const snakeOwner=snakeState?.owner||null;
+  const snakeBet=snakeState?.amount||Number(msb.snake?.bet||0);
+  const snakeTransferCount=snakeState?.transfers?.length||0;
+
+  // ── AUDIO TRIGGERS ──────────────────────────────────────────
+  // Track previous values to detect new changes
+  const prevVegasTot = useRef(null);
+  const prevSnakeCount = useRef(0);
+  const prevSnakeOwner = useRef(null);
+
+  // Vegas: play ca-ching when cumulative point diff increases (per point scored)
+  useEffect(()=>{
+    if(!vegasData) return;
+    // Sum all completed hole diffs
+    const completedHoles = vegasData.holes.filter(Boolean);
+    if(!completedHoles.length) return;
+    const latestTot = vegasData.tot;
+    if(prevVegasTot.current !== null && latestTot !== prevVegasTot.current){
+      const delta = Math.abs(latestTot) - Math.abs(prevVegasTot.current);
+      if(delta > 0 && typeof window.SFX !== 'undefined'){
+        // Play one ca-ching per point gained
+        window.SFX.caChing(delta);
+      }
+    }
+    prevVegasTot.current = latestTot;
+  },[vegasData?.tot]);
+
+  // Snake: play rattlesnake when a new transfer happens OR owner changes
+  useEffect(()=>{
+    if(!snakeState) return;
+    const prevCount = prevSnakeCount.current;
+    const prevOwner = prevSnakeOwner.current;
+    const newTransfer = snakeTransferCount > prevCount;
+    const ownerChanged = snakeOwner && snakeOwner !== prevOwner && prevOwner !== null;
+    if((newTransfer || ownerChanged) && typeof window.SFX !== 'undefined'){
+      window.SFX.rattlesnake();
+    }
+    prevSnakeCount.current = snakeTransferCount;
+    prevSnakeOwner.current = snakeOwner;
+  },[snakeTransferCount, snakeOwner]);
+
+  const hole=course.holes[curHole];
+  const hStatus=mp?.hr?.[curHole];
+
+  return(
+    <div style={{borderTop:`1px solid ${C.border}`}}>
+      {/* Pops + mode toggle */}
+      <div style={{padding:"8px 14px",background:"#f0f8f0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:10,color:C.textSoft}}>🎯 {popStr}</div>
+        <div style={{display:"flex",gap:4}}>
+          <button onClick={()=>setViewMode("hole")} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:viewMode==="hole"?C.hdr:"transparent",color:viewMode==="hole"?C.hdrText:C.textSoft,fontSize:10,fontWeight:700}}>Hole</button>
+          <button onClick={()=>setViewMode("card")} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:viewMode==="card"?C.hdr:"transparent",color:viewMode==="card"?C.hdrText:C.textSoft,fontSize:10,fontWeight:700}}>Card</button>
+        </div>
+      </div>
+
+      {viewMode==="hole"&&(
+        <div style={{padding:"14px"}}>
+          {/* Hole navigator */}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+            <button className="hole-btn" onClick={()=>setCurHole(h=>Math.max(0,h-1))} disabled={curHole===0}>‹</button>
+            <div style={{flex:1,textAlign:"center"}}>
+              <div style={{fontSize:28,fontWeight:900,color:C.text}}>Hole {hole.h}</div>
+              <div style={{fontSize:13,color:C.textSoft,marginTop:1}}>Par {hole.par} · Hcp {hole.hcp}</div>
+              {hStatus!==null&&hStatus!==undefined&&<div style={{marginTop:6,display:"inline-flex",padding:"4px 14px",borderRadius:16,background:hStatus===0?C.goldBg:hStatus>0?C.greenBg:C.redBg,color:hStatus===0?C.gold:hStatus>0?C.green:C.red,fontSize:12,fontWeight:800}}>
+                {hStatus===0?"All Square":hStatus>0?`🌵 ${Math.abs(hStatus)} UP`:`🌶️ ${Math.abs(hStatus)} UP`}
+              </div>}
+            </div>
+            <button className="hole-btn" onClick={()=>setCurHole(h=>Math.min(17,h+1))} disabled={curHole===17}>›</button>
+          </div>
+
+          {/* Snake status banner */}
+          {showPutts&&snakeOwner&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",marginBottom:8,background:C.goldBg,borderRadius:10,border:`2px solid ${C.goldBdr}`}}>
+            <span className="snake-icon">🐍</span>
+            <div>
+              <div style={{fontSize:13,fontWeight:800,color:C.gold}}>{PLAYERS[snakeOwner]?.name} holds the snake</div>
+              <div style={{fontSize:11,color:C.textSoft}}>Current bet: <strong>${snakeBet.toFixed(2)}</strong> · Next 3-putt doubles to ${(snakeBet*2).toFixed(2)}</div>
+            </div>
+          </div>}
+          {showPutts&&!snakeOwner&&msb.snakeOn&&<div style={{padding:"8px 14px",marginBottom:8,background:C.goldBg,borderRadius:10,border:`1px solid ${C.goldBdr}`,textAlign:"center"}}>
+            <div style={{fontSize:12,color:C.gold,fontWeight:700}}>🐍 Snake active · Initial bet: ${Number(msb.snake?.bet||0).toFixed(2)} · First 3-putt takes it</div>
+          </div>}
+
+          {/* Score inputs for each player */}
+          {[{keys:p.sideA,team:TEAM_A},{keys:p.sideB,team:TEAM_B}].map(({keys,team})=>(
+            <div key={team.name} style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:800,color:team.color,marginBottom:8,letterSpacing:.5}}>{team.emoji} {team.name}</div>
+              {keys.map(k=>{
+                const g=getG(k,curHole),net=netOf(k,curHole),par=hole.par;
+                const pop=pops[k]?.[curHole]??0;
+                const putts=getP2(k,curHole);
+                const is3=Number(putts)>=3;
+                const col=net!==null?scoreColor(net,par):C.textSoft;
+                const bg=net!==null?scoreBg(net,par):C.cardAlt;
+                return(
+                  <div key={k} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:14,fontWeight:700}}>{PLAYERS[k].short}</div>
+                      {pop>0&&<div style={{fontSize:10,color:team.color}}>+{pop} pop{pop>1?"s":""}</div>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      {/* Gross */}
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:9,color:C.textSoft,marginBottom:2}}>GROSS</div>
+                        <input className="score-input" type="number" min="1" max="12" value={g}
+                          onChange={e=>onScore(k,curHole,e.target.value===""?undefined:e.target.value)}
+                          style={{borderColor:net!==null?col:C.border,background:bg,color:col}}/>
+                      </div>
+                      {/* Net */}
+                      {net!==null&&<div style={{textAlign:"center"}}>
+                        <div style={{fontSize:9,color:C.textSoft,marginBottom:2}}>NET</div>
+                        <div style={{width:52,height:52,borderRadius:10,background:bg,border:`2px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:800,color:col}}>{net}</div>
+                      </div>}
+                      {/* Putts + snake indicator */}
+                      {showPutts&&<div style={{textAlign:"center"}}>
+                        <div style={{fontSize:9,color:is3?C.gold:C.textSoft,marginBottom:2,fontWeight:is3?800:400}}>PUTTS{is3?" 🐍":""}</div>
+                        <input className={`putt-input${is3?" three-putt":""}`} type="number" min="1" max="6" value={putts}
+                          onChange={e=>onPutts(k,curHole,e.target.value===""?undefined:e.target.value)}/>
+                        {snakeOwner===k&&<div style={{fontSize:10,marginTop:3}} className="snake-icon">🐍</div>}
+                      </div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+
+          {/* Vegas hole display */}
+          {vegasData&&(()=>{
+            const hd=vegasData.holes[curHole];
+            return(
+              <div style={{marginTop:10,borderRadius:12,border:`2px solid ${C.purple}`,overflow:"hidden",background:"rgba(106,42,154,0.04)"}}>
+                <div style={{padding:"8px 14px",background:"rgba(106,42,154,0.12)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:13,fontWeight:800,color:C.purple}}>🎲 Vegas</div>
+                  <div style={{fontSize:11,color:C.purple}}>Hole {hole.h} · ${vegasData.per}/pt</div>
+                </div>
+                {hd?(
+                  <div style={{padding:"10px 14px"}}>
+                    {/* Team Vegas numbers */}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:8,alignItems:"center",marginBottom:10}}>
+                      <div style={{textAlign:"center",padding:"8px",background:C.greenBg,borderRadius:10,border:`1px solid ${C.greenBdr}`}}>
+                        <div style={{fontSize:10,color:C.green,fontWeight:700,marginBottom:2}}>{TEAM_A.emoji} {TEAM_A.short}</div>
+                        <div style={{fontSize:28,fontWeight:900,color:C.green}}>{hd.a}</div>
+                        <div style={{fontSize:9,color:C.textSoft}}>Vegas #</div>
+                      </div>
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:11,color:C.textSoft}}>vs</div>
+                        <div style={{fontSize:13,fontWeight:800,color:hd.d>0?C.green:hd.d<0?C.red:C.textSoft,marginTop:4}}>{hd.d>0?"🌵":hd.d<0?"🌶️":"="} {hd.d>0?"+":""}{hd.d}</div>
+                      </div>
+                      <div style={{textAlign:"center",padding:"8px",background:C.redBg,borderRadius:10,border:`1px solid ${C.redBdr}`}}>
+                        <div style={{fontSize:10,color:C.red,fontWeight:700,marginBottom:2}}>{TEAM_B.emoji} {TEAM_B.short}</div>
+                        <div style={{fontSize:28,fontWeight:900,color:C.red}}>{hd.b}</div>
+                        <div style={{fontSize:9,color:C.textSoft}}>Vegas #</div>
+                      </div>
+                    </div>
+                    {/* Cumulative */}
+                    <div style={{padding:"8px 12px",background:hd.cum>0?C.greenBg:hd.cum<0?C.redBg:C.cardAlt,borderRadius:8,border:`1px solid ${hd.cum>0?C.greenBdr:hd.cum<0?C.redBdr:C.border}`,textAlign:"center"}}>
+                      <div style={{fontSize:10,color:C.textSoft,marginBottom:2}}>RUNNING TOTAL</div>
+                      <div style={{fontSize:16,fontWeight:800,color:hd.cum>0?C.green:hd.cum<0?C.red:C.textSoft}}>
+                        {hd.cum>0?`🌵 ${TEAM_A.short} +${hd.cum}pts`:hd.cum<0?`🌶️ ${TEAM_B.short} +${Math.abs(hd.cum)}pts`:"All Square"}
+                      </div>
+                      <div style={{fontSize:14,fontWeight:800,color:hd.cum>0?C.green:hd.cum<0?C.red:C.textSoft,marginTop:2}}>
+                        {$(Math.abs(hd.cum*vegasData.per))} {hd.cum!==0?(hd.cum>0?`owed to ${TEAM_A.short}`:`owed to ${TEAM_B.short}`):""}
+                      </div>
+                    </div>
+                  </div>
+                ):(
+                  <div style={{padding:"12px 14px",textAlign:"center",color:C.textSoft,fontSize:12}}>
+                    Enter all 4 players scores to see Vegas numbers
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Hole nav dots */}
+          <div style={{display:"flex",justifyContent:"center",gap:4,marginTop:14,flexWrap:"wrap"}}>
+            {course.holes.map((_,i)=>{
+              const anyScore=allK.some(k=>getG(k,i)!=="");
+              return(<button key={i} onClick={()=>setCurHole(i)} style={{width:24,height:24,borderRadius:12,background:i===curHole?C.hdr:anyScore?"#4a8a4a":C.cardAlt,border:`1px solid ${i===curHole?C.hdr:anyScore?"#4a8a4a":C.border}`,color:i===curHole?C.hdrText:anyScore?"#fff":C.textSoft,fontSize:9,fontWeight:700,padding:0}}>
+                {i+1}
+              </button>);
+            })}
+          </div>
+        </div>
+      )}
+
+      {viewMode==="card"&&(
+        <CardView course={course} allK={allK} pops={pops} getG={getG} netOf={netOf} p={p} mp={mp} vegasData={vegasData}/>
+      )}
+    </div>
+  );
+}
+
+// ─── COMPACT CARD VIEW (summary table) ───────────────────────
+function CardView({course,allK,pops,getG,netOf,p,mp,vegasData}){
+  return(
+    <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",padding:"8px 0"}}>
+      {[{label:"FRONT",idxs:[0,1,2,3,4,5,6,7,8]},{label:"BACK",idxs:[9,10,11,12,13,14,15,16,17]}].map(({label,idxs})=>(
+        <div key={label} style={{marginBottom:8}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.textSoft,padding:"0 10px 4px",letterSpacing:2}}>{label} NINE</div>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:400}}>
+            <thead>
+              <tr style={{background:C.hdr}}>
+                <td style={{padding:"4px 8px",color:"#8a9a60",fontSize:9,width:64}}>PLAYER</td>
+                {idxs.map(i=><td key={i} style={{padding:"4px 2px",textAlign:"center",color:C.hdrText,fontWeight:700,width:26}}>{course.holes[i].h}</td>)}
+                <td style={{padding:"4px 6px",textAlign:"center",color:"#8a9a60",fontSize:9,width:36}}>OUT</td>
+              </tr>
+              <tr style={{background:C.cardAlt}}>
+                <td style={{padding:"2px 8px",fontSize:9,color:C.textSoft,fontWeight:700}}>Par</td>
+                {idxs.map(i=><td key={i} style={{padding:"2px 2px",textAlign:"center",fontSize:10,fontWeight:700,color:C.textMid}}>{course.holes[i].par}</td>)}
+                <td style={{textAlign:"center",fontSize:10,fontWeight:700,color:C.textMid}}>{idxs.reduce((s,i)=>s+course.holes[i].par,0)}</td>
+              </tr>
+              <tr style={{background:C.goldBg}}>
+                <td style={{padding:"2px 8px",fontSize:8,color:C.gold,fontWeight:700}}>Match</td>
+                {idxs.map(i=>{const st=mp?.hr?.[i];if(st==null)return<td key={i} style={{textAlign:"center",color:C.textSoft,fontSize:8}}>—</td>;const col=st===0?C.gold:st>0?C.green:C.red;return<td key={i} style={{textAlign:"center",color:col,fontSize:9,fontWeight:800}}>{st===0?"=":`${st>0?"🌵":"🌶️"}${Math.abs(st)}`}</td>;})}
+                <td style={{textAlign:"center",fontSize:9,fontWeight:800,color:mp?.ud===0?C.gold:mp?.ud>0?C.green:C.red}}>{mp?.played>0?(mp.ud===0?"AS":mp.ud>0?`🌵${Math.abs(mp.ud)}`:`🌶️${Math.abs(mp.ud)}`):""}</td>
+              </tr>
+              {vegasData&&<>
+                <tr style={{background:"rgba(106,42,154,0.08)"}}>
+                  <td style={{padding:"2px 8px",fontSize:8,color:C.purple,fontWeight:700}}>🌵VEG</td>
+                  {idxs.map(i=>{const hd=vegasData.holes[i];if(!hd)return<td key={i} style={{textAlign:"center",color:C.textSoft,fontSize:8}}>—</td>;return<td key={i} style={{textAlign:"center",color:C.green,fontSize:8,fontWeight:700}}>{hd.a}</td>;})}
+                  <td style={{textAlign:"center",fontSize:8,fontWeight:700,color:C.green}}>{idxs.reduce((s,i)=>s+(vegasData.holes[i]?vegasData.holes[i].a:0),0)||""}</td>
+                </tr>
+                <tr style={{background:"rgba(106,42,154,0.05)"}}>
+                  <td style={{padding:"2px 8px",fontSize:8,color:C.purple,fontWeight:700}}>🌶️VEG</td>
+                  {idxs.map(i=>{const hd=vegasData.holes[i];if(!hd)return<td key={i} style={{textAlign:"center",color:C.textSoft,fontSize:8}}>—</td>;return<td key={i} style={{textAlign:"center",color:C.red,fontSize:8,fontWeight:700}}>{hd.b}</td>;})}
+                  <td style={{textAlign:"center",fontSize:8,fontWeight:700,color:C.red}}>{idxs.reduce((s,i)=>s+(vegasData.holes[i]?vegasData.holes[i].b:0),0)||""}</td>
+                </tr>
+                <tr style={{background:"rgba(106,42,154,0.12)"}}>
+                  <td style={{padding:"2px 8px",fontSize:8,color:C.purple,fontWeight:700}}>CUM$</td>
+                  {idxs.map(i=>{const hd=vegasData.holes[i];if(!hd)return<td key={i} style={{textAlign:"center",fontSize:8}}></td>;const money=hd.cum*vegasData.per;const col=money>0?C.green:money<0?C.red:C.textSoft;return<td key={i} style={{textAlign:"center",color:col,fontSize:7,fontWeight:800}}>{money>=0?"+":""}{money.toFixed(0)}</td>;})}
+                  <td style={{textAlign:"center",fontSize:8,fontWeight:800,color:vegasData.net>0?C.green:vegasData.net<0?C.red:C.textSoft}}>{vegasData.net>0?"🌵":vegasData.net<0?"🌶️":"="}{$(Math.abs(vegasData.net))}</td>
+                </tr>
+              </>}
+            </thead>
+            <tbody>
+              {[{keys:p.sideA,team:TEAM_A,cls:"row-a"},{keys:p.sideB,team:TEAM_B,cls:"row-b"}].map(({keys,team,cls})=>keys.map((k,pi)=>{
+                const gOut=idxs.reduce((s,i)=>{const g=getG(k,i);return g!==""&&!isNaN(g)?s+Number(g):s;},0);
+                const nOut=idxs.reduce((s,i)=>{const n=netOf(k,i);return n!==null?s+n:s;},0);
+                const has=idxs.some(i=>getG(k,i)!=="");
+                const d=Math.round((PLAYERS[k].hcp-Math.min(...[...p.sideA,...p.sideB].map(x=>PLAYERS[x].hcp)))*(p.type==="singles"?1:0.90));
+                return(
+                  <tr key={k} className={cls} style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"3px 8px"}}>
+                      <div style={{fontSize:10,fontWeight:700,color:team.color}}>{PLAYERS[k].short}</div>
+                      <div style={{fontSize:8,color:C.textSoft}}>+{d}</div>
+                    </td>
+                    {idxs.map(i=>{
+                      const g=getG(k,i),net=netOf(k,i),par=course.holes[i].par;
+                      const col=net!==null?scoreColor(net,par):C.textSoft;
+                      const bg=net!==null?scoreBg(net,par):"transparent";
+                      return(
+                        <td key={i} style={{padding:"2px 1px",textAlign:"center"}}>
+                          {g!==""?<div style={{width:22,height:22,margin:"0 auto",borderRadius:4,background:bg,border:`1px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:col}}>{g}</div>:<div style={{width:22,height:22}}/>}
+                        </td>
+                      );
+                    })}
+                    <td style={{padding:"2px 6px",textAlign:"center"}}>
+                      {has&&<div><div style={{fontSize:11,fontWeight:800}}>{gOut}</div><div style={{fontSize:9,color:team.color,fontWeight:700}}>({nOut})</div></div>}
+                    </td>
+                  </tr>
+                );
+              }))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── SIDE BET PANEL ──────────────────────────────────────────
+function SideBetPanel({mid,type,sb,updateSB}){
+  const msb=sb?.[mid]||{};
+  const isPairs=type==="pairs";
+  const [open,setOpen]=useState(false);
+  const nassau=msb.nassau||{},vegas=msb.vegas||{},snake=msb.snake||{};
+  const active=[msb.nassauOn?"Nassau":null,msb.vegasOn&&isPairs?"Vegas":null,msb.snakeOn&&isPairs?"🐍":null].filter(Boolean);
+
+  const numRow=(label,val,onChange)=>(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+      <span style={{fontSize:14,fontWeight:600,color:C.text}}>{label}</span>
+      <div style={{display:"flex",alignItems:"center",gap:4}}>
+        <span style={{fontSize:14,color:C.textSoft}}>$</span>
+        <input type="number" min="0" step="0.01" value={val||""} onChange={e=>onChange(e.target.value)}
+          style={{width:80,height:40,padding:"0 8px",border:`2px solid ${C.border}`,borderRadius:8,fontSize:16,fontWeight:700,textAlign:"right",background:C.cardAlt,color:C.text,outline:"none"}}/>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{borderTop:`1px solid ${C.border}`}}>
+      <button onClick={()=>setOpen(!open)} style={{width:"100%",padding:"12px 14px",background:open?C.cardAlt:C.card,border:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:16}}>🎰</span>
+          <span style={{fontSize:13,fontWeight:700,color:C.purple}}>Side Bets{active.length?" · "+active.join(", "):""}</span>
+        </div>
+        <span style={{fontSize:16,color:C.textSoft}}>{open?"▲":"▼"}</span>
+      </button>
+
+      {open&&<div style={{background:C.cardAlt,borderTop:`1px solid ${C.border}`}}>
+        {/* Nassau */}
+        <div style={{background:C.card,margin:"8px",borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+          <label style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",cursor:"pointer"}}>
+            <input type="checkbox" checked={!!msb.nassauOn} onChange={e=>updateSB(mid,{nassauOn:e.target.checked})} style={{width:20,height:20,accentColor:C.green}}/>
+            <span style={{fontSize:15,fontWeight:700}}>Nassau</span>
+          </label>
+          {msb.nassauOn&&<>
+            {numRow("Front 9",nassau.front,v=>updateSB(mid,{nassau:{...nassau,front:v}}))}
+            {numRow("Back 9", nassau.back, v=>updateSB(mid,{nassau:{...nassau,back:v}}))}
+            {numRow("Total",  nassau.total,v=>updateSB(mid,{nassau:{...nassau,total:v}}))}
+          </>}
+        </div>
+
+        {/* Vegas */}
+        {isPairs&&<div style={{background:C.card,margin:"8px",marginTop:0,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+          <label style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",cursor:"pointer"}}>
+            <input type="checkbox" checked={!!msb.vegasOn} onChange={e=>updateSB(mid,{vegasOn:e.target.checked})} style={{width:20,height:20,accentColor:C.purple}}/>
+            <span style={{fontSize:15,fontWeight:700}}>Vegas</span>
+          </label>
+          {msb.vegasOn&&<>
+            {numRow("$ per point",vegas.per,v=>updateSB(mid,{vegas:{...vegas,per:v}}))}
+            <div style={{padding:"8px 14px",fontSize:11,color:C.textSoft}}>Each team combines net scores into 2-digit number (low first). Difference × $ per point.</div>
+          </>}
+        </div>}
+
+        {/* Snake */}
+        {isPairs&&<div style={{background:C.card,margin:"8px",marginTop:0,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+          <label style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",cursor:"pointer"}}>
+            <input type="checkbox" checked={!!msb.snakeOn} onChange={e=>updateSB(mid,{snakeOn:e.target.checked})} style={{width:20,height:20,accentColor:C.gold}}/>
+            <span style={{fontSize:15,fontWeight:700}}>🐍 Snake</span>
+          </label>
+          {msb.snakeOn&&<>
+            {/* Mode toggle */}
+            <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>Bet style</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                <button onClick={()=>updateSB(mid,{snake:{...(snake||{}),mode:"double"}})}
+                  style={{padding:"10px 8px",borderRadius:9,border:`2px solid ${(!snake.mode||snake.mode==="double")?C.gold:C.border}`,background:(!snake.mode||snake.mode==="double")?C.goldBg:C.cardAlt,color:(!snake.mode||snake.mode==="double")?C.gold:C.textSoft,fontSize:12,fontWeight:700,textAlign:"center"}}>
+                  📈 Double<br/><span style={{fontSize:10,fontWeight:400}}>$0.25→$0.50→$1…</span>
+                </button>
+                <button onClick={()=>updateSB(mid,{snake:{...(snake||{}),mode:"increment"}})}
+                  style={{padding:"10px 8px",borderRadius:9,border:`2px solid ${snake.mode==="increment"?C.gold:C.border}`,background:snake.mode==="increment"?C.goldBg:C.cardAlt,color:snake.mode==="increment"?C.gold:C.textSoft,fontSize:12,fontWeight:700,textAlign:"center"}}>
+                  📊 Increment<br/><span style={{fontSize:10,fontWeight:400}}>$5→$10→$15…</span>
+                </button>
+              </div>
+            </div>
+            {/* Bet amount */}
+            {numRow(
+              (!snake.mode||snake.mode==="double")?"Starting bet":"Increment per transfer",
+              snake.bet,
+              v=>updateSB(mid,{snake:{...(snake||{}),bet:v}})
+            )}
+            <div style={{padding:"8px 14px",fontSize:11,color:C.textSoft}}>
+              {(!snake.mode||snake.mode==="double")
+                ?"Each 3-putt doubles the bet. End of round: holder pays each other player."
+                :"Each 3-putt adds the increment. End of round: holder pays each other player."}
+            </div>
+          </>}
+        </div>}
+      </div>}
+    </div>
+  );
+}
+
+// ─── SNAKE DRAG LIST ─────────────────────────────────────────
+function SnakeDragList({players,onConfirm}){
+  const [order,setOrder]=useState([...players]);
+  const dragIdx=useRef(null);
+  const itemRefs=useRef([]);
+
+  const onDragStart=i=>{dragIdx.current=i;};
+  const onDragOver=(e,i)=>{
+    e.preventDefault();
+    if(dragIdx.current===null||dragIdx.current===i)return;
+    const arr=[...order];const item=arr.splice(dragIdx.current,1)[0];arr.splice(i,0,item);
+    dragIdx.current=i;setOrder(arr);
+  };
+
+  const onTouchMove=e=>{
+    e.preventDefault();
+    if(dragIdx.current===null)return;
+    const y=e.touches[0].clientY;
+    itemRefs.current.forEach((el,i)=>{
+      if(!el)return;const r=el.getBoundingClientRect();
+      if(y>=r.top&&y<=r.bottom&&i!==dragIdx.current){
+        const arr=[...order];const item=arr.splice(dragIdx.current,1)[0];arr.splice(i,0,item);
+        dragIdx.current=i;setOrder(arr);
+      }
+    });
+  };
+
+  return(
+    <div>
+      <div style={{fontSize:12,color:C.textSoft,marginBottom:8}}>Drag to reorder — last player gets the 🐍</div>
+      {order.map((pk,i)=>(
+        <div key={pk} ref={el=>itemRefs.current[i]=el}
+          draggable onDragStart={()=>onDragStart(i)} onDragOver={e=>onDragOver(e,i)} onDragEnd={()=>{dragIdx.current=null;}}
+          onTouchStart={e=>{e.preventDefault();dragIdx.current=i;}}
+          onTouchMove={onTouchMove} onTouchEnd={()=>{dragIdx.current=null;}}
+          className="snake-drag-item"
+          style={{display:"flex",alignItems:"center",gap:12,padding:"14px",marginBottom:6,background:i===order.length-1?C.goldBg:C.card,border:`2px solid ${i===order.length-1?C.goldBdr:C.border}`,borderRadius:12,fontSize:15,fontWeight:i===order.length-1?800:600,color:i===order.length-1?C.gold:C.text}}>
+          <span style={{fontSize:22,cursor:"grab"}}>⠿</span>
+          <span>{i+1}. {PLAYERS[pk]?.name}</span>
+          {i===order.length-1&&<span className="snake-icon" style={{marginLeft:"auto"}}>🐍</span>}
+        </div>
+      ))}
+      <button className="btn" onClick={()=>onConfirm(order)} style={{width:"100%",background:C.gold,color:"#fff",marginTop:4}}>
+        Confirm — 🐍 → {PLAYERS[order[order.length-1]]?.short}
+      </button>
+    </div>
+  );
+}
+
+// ─── SNAKE TRACKER ───────────────────────────────────────────
+// Fully computed from puttData — deleting a putt score auto-reverts the snake.
+// Only multiOrders (tie-break ordering for multi-3-putt holes) is stored.
+function SnakeTracker({mid,allKeys,sb,mpd,updateSnakeOrder}){
+  const msb=sb?.[mid]||{};
+  const snake=msb.snake||{};
+  const multiOrders=snake.multiOrders||{};
+  const initBet=Number(snake.bet||0);
+  const [pending,setPending]=useState(null);
+
+  // Fully computed state from current putt data
+  const state=calcSnakeState(allKeys,mpd,initBet,multiOrders,snake.mode||'double');
+  const curOwner=state?.owner||null;
+  const curAmt=state?.amount||0;
+  const transfers=state?.transfers||[];
+
+  // Multi-3-putt holes that need ordering (have >1 player, no stored order)
+  // Dedupe by hole — one prompt per hole, not per transfer within a hole
+  const multiHoles=[...new Set(transfers.filter(t=>t.multi).map(t=>t.hole))];
+  const needsOrder=multiHoles.filter(h=>{
+    const stored=multiOrders?.[h];
+    const players=transfers.find(t=>t.hole===h)?.players||[];
+    return !stored||stored.length<players.length;
+  }).map(h=>({hole:h,players:transfers.find(t=>t.hole===h)?.players||[],amount:transfers.find(t=>t.hole===h)?.amount||0}));
+
+  const setOrder=(holeIdx,orderedKeys)=>{
+    updateSnakeOrder(mid,holeIdx,orderedKeys);
+    setPending(null);
+    // Play rattlesnake sound when order is confirmed for a multi-3-putt hole
+    if(typeof window.SFX !== 'undefined') window.SFX.rattlesnake();
+  };
+
+  return(
+    <div style={{borderTop:`1px solid ${C.goldBdr}`,background:C.goldBg}}>
+      <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.goldBdr}`,display:"flex",alignItems:"center",gap:10}}>
+        <span className="snake-icon">🐍</span>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.gold}}>
+            🐍 Snake · {snake.mode==="increment"?`+$${initBet.toFixed(2)} per transfer`:`$${initBet.toFixed(2)} doubling`}
+          </div>
+          {curOwner
+            ?<div style={{fontSize:12,color:C.text,marginTop:1}}>🐍 <strong>{PLAYERS[curOwner]?.name}</strong> holds the snake · Bet: <strong>${curAmt.toFixed(2)}</strong></div>
+            :<div style={{fontSize:11,color:C.textSoft,marginTop:1}}>No 3-putts yet — snake not in play</div>}
+          <div style={{fontSize:10,color:C.textSoft,marginTop:2}}>Deleting a putt score automatically reverts snake ownership</div>
+        </div>
+      </div>
+
+      {/* Multi-3-putt holes needing tie-break order */}
+      {needsOrder.map(({hole:hIdx,players,amount:firstAmt})=>{
+        const isPend=pending===hIdx;
+        const snakeMode=snake.mode||'double';
+        // Show what the bet will be after all transfers on this hole
+        const finalAmt=snakeMode==='increment'
+          ? firstAmt + (players.length-1)*init   // each subsequent adds init
+          : firstAmt*Math.pow(2,players.length-1); // doubling
+        return(
+          <div key={hIdx} style={{padding:"12px 14px",borderBottom:`1px solid ${C.goldBdr}`,background:"rgba(200,168,32,0.10)"}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:4}}>
+              ⚠️ Hole {hIdx+1} — {players.length} players 3-putted
+            </div>
+            <div style={{fontSize:11,color:C.textSoft,marginBottom:4}}>
+              Snake changes hands {players.length} time{players.length>1?"s":""}. Drag to set who 3-putted first → last. Bet doubles each transfer.
+            </div>
+            <div style={{fontSize:11,color:C.gold,fontWeight:700,marginBottom:8}}>
+              Starts at ${firstAmt.toFixed(2)} → ends at ${finalAmt.toFixed(2)} (last player holds it)
+            </div>
+            {isPend
+              ?<SnakeDragList players={players} onConfirm={ord=>setOrder(hIdx,ord)}/>
+              :<button className="btn" onClick={()=>setPending(hIdx)} style={{width:"100%",background:C.gold,color:"#fff"}}>
+                Set 3-Putt Order for Hole {hIdx+1} — {players.map(k=>PLAYERS[k]?.short).join(", ")}
+              </button>}
+          </div>
+        );
+      })}
+
+      {/* Transfer log — auto-computed, updates live */}
+      {transfers.length>0&&(
+        <div style={{padding:"10px 14px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.textSoft,letterSpacing:1,marginBottom:6}}>TRANSFER LOG (auto-computed)</div>
+          {transfers.map((t,i)=>{
+            const prev=transfers[i-1];
+            const sameHole=prev&&prev.hole===t.hole;
+            return(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.goldBdr}`,background:sameHole?"rgba(200,168,32,0.05)":"transparent"}}>
+                <div>
+                  <div style={{fontSize:12}}>
+                    {sameHole
+                      ?<span style={{color:C.textSoft}}>  ↳ </span>
+                      :<span>H{t.hole+1} </span>}
+                    <span>→ <strong style={{color:C.gold}}>{PLAYERS[t.owner]?.short}</strong></span>
+                    {t.multi&&<span style={{fontSize:10,color:C.textSoft,marginLeft:4}}>{sameHole?"(multi)":"(1st)"}</span>}
+                  </div>
+                </div>
+                <span style={{fontSize:13,fontWeight:700,color:C.gold}}>${t.amount.toFixed(2)}</span>
+              </div>
+            );
+          })}
+          <div style={{marginTop:8,padding:"10px 12px",background:"rgba(200,168,32,0.15)",borderRadius:10,border:`1px solid ${C.goldBdr}`}}>
+            <div style={{fontSize:12,fontWeight:800,color:C.gold,textAlign:"center"}}>
+              End of round: {PLAYERS[curOwner]?.short} owes ${curAmt.toFixed(2)} to each other player
+            </div>
+            <div style={{fontSize:11,color:C.textSoft,textAlign:"center",marginTop:2}}>
+              Total owed: ${(curAmt*(allKeys.length-1)).toFixed(2)}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── R3 SETUP ────────────────────────────────────────────────
+function R3Setup({r3P,setR3Pair}){
+  const [open,setOpen]=useState(true);
+  const aOpts=A_KEYS.map(k=>({key:k,...PLAYERS[k]}));
+  const bOpts=B_KEYS.map(k=>({key:k,...PLAYERS[k]}));
+  const get=mid=>{const d=r3P?.[mid]||{};return{sideA:d.sideA||[],sideB:d.sideB||[]};};
+  const setSlot=(mid,side,slot,pk)=>{const cur=get(mid);const arr=[...(cur[side]||[])];if(pk==="")arr.splice(slot,1);else arr[slot]=pk;setR3Pair(mid,side,arr);};
+
+  return(
+    <div className="card" style={{border:`2px solid ${C.goldBdr}`}}>
+      <button onClick={()=>setOpen(!open)} style={{width:"100%",padding:"14px",background:C.goldBg,border:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:15,fontWeight:800,color:C.gold}}>🎯 Set Round 3 Pairings</span>
+        <span style={{fontSize:16,color:C.gold}}>{open?"▲":"▼"}</span>
+      </button>
+      {open&&R3M.map(m=>{
+        const isPairs=m.type==="pairs",cur=get(m.id);
+        const allK=[...cur.sideA,...cur.sideB].filter(Boolean);
+        const pct=isPairs?0.90:1.00;
+        const popStr=allK.length>=2?calcPops(allK,COURSES.wekopa.holes,pct)&&allK.map(k=>{const d=Math.round((PLAYERS[k].hcp-Math.min(...allK.map(x=>PLAYERS[x].hcp)))*pct);return`${PLAYERS[k].short}:${d===0?"scratch":"+"+d}`;}).join(" · "):"";
+        return(
+          <div key={m.id} style={{padding:"14px",borderTop:`1px solid ${C.goldBdr}`}}>
+            <div style={{fontSize:13,fontWeight:800,color:C.gold,marginBottom:10}}>{m.label} · {m.pts}pt · {isPairs?"2v2 (90% pops)":"Singles (100% pops)"}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {[{team:TEAM_A,side:"sideA",opts:aOpts},{team:TEAM_B,side:"sideB",opts:bOpts}].map(({team,side,opts})=>(
+                <div key={team.name} style={{background:team.bg,borderRadius:10,padding:"10px",border:`1px solid ${team.bdr}`}}>
+                  <div style={{fontSize:11,fontWeight:800,color:team.color,marginBottom:8}}>{team.emoji} {team.short}</div>
+                  {[0,...(isPairs?[1]:[])].map(slot=>{
+                    const val=cur[side]?.[slot]||"";
+                    const used=(cur[side]||[]).filter((_,i)=>i!==slot);
+                    const avail=opts.filter(o=>!used.includes(o.key));
+                    return(<select key={slot} className="sel" value={val} onChange={e=>setSlot(m.id,side,slot,e.target.value)} style={{marginBottom:slot===0&&isPairs?6:0,borderColor:val?team.color:C.border,color:val?team.color:C.textSoft}}>
+                      <option value="">— Pick player —</option>
+                      {avail.map(o=><option key={o.key} value={o.key}>{o.name} ({o.hcp})</option>)}
+                      {val&&!avail.find(o=>o.key===val)&&<option value={val}>{PLAYERS[val].name}</option>}
+                    </select>);
+                  })}
+                </div>
+              ))}
+            </div>
+            {popStr&&<div style={{marginTop:8,padding:"6px 10px",background:"rgba(255,255,255,0.7)",borderRadius:8,fontSize:11,color:C.textSoft}}>🎯 {popStr}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── SKINS TAB ───────────────────────────────────────────────
+function SkinsTab({hs}){
+  const rSkins=ROUNDS.filter(r=>r.course).map(r=>{
+    const skins=calcSkins(hs?.[r.key]||{},r.course);
+    const val=skins.length>0?(SKINS_POT/skins.length).toFixed(2):null;
+    return{round:r,course:COURSES[r.course],skins,val};
+  });
+  const pTot={};
+  rSkins.forEach(({skins,val})=>skins.forEach(s=>{if(!pTot[s.player])pTot[s.player]={n:0,w:0};pTot[s.player].n++;pTot[s.player].w+=val?parseFloat(val):0;}));
+  const sorted=Object.entries(pTot).sort((a,b)=>b[1].w-a[1].w);
+
+  return(<>
+    <div className="card">
+      <div style={{padding:"12px 14px",background:C.hdr}}>
+        <div style={{fontSize:14,fontWeight:800,color:"#c0a040"}}>💰 Skins Leaderboard</div>
+        <div style={{fontSize:11,color:"#8a8060",marginTop:2}}>${SKINS_POT}/round · net birdie+ · outright only · $20 buy-in</div>
+      </div>
+      {sorted.length===0?<div style={{padding:"20px",textAlign:"center",color:C.textSoft}}>No skins yet — enter hole scores</div>
+        :sorted.map(([k,d],i)=>{const team=PLAYERS[k].team==="A"?TEAM_A:TEAM_B;return(
+          <div key={k} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 14px",borderTop:i>0?`1px solid ${C.border}`:"none"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:14,color:C.gold,fontWeight:800,minWidth:24}}>#{i+1}</span>
+              <span style={{fontSize:18}}>{team.emoji}</span>
+              <div><div style={{fontSize:14,fontWeight:700}}>{PLAYERS[k].name}</div><div style={{fontSize:11,color:team.color,fontWeight:700}}>{team.short}</div></div>
+            </div>
+            <div style={{textAlign:"right"}}><div style={{fontSize:20,fontWeight:900,color:C.gold}}>${d.w.toFixed(0)}</div><div style={{fontSize:10,color:C.textSoft}}>{d.n} skin{d.n!==1?"s":""}</div></div>
+          </div>
+        );})}
+    </div>
+    {rSkins.map(({round,course,skins,val})=>(
+      <div key={round.key} className="card">
+        <div style={{padding:"10px 14px",background:C.hdr,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:12,fontWeight:800,color:"#c0a040"}}>{round.label}</div><div style={{fontSize:10,color:"#8a8060",marginTop:1}}>{course.full}</div></div>
+          <div style={{textAlign:"right"}}><div style={{fontSize:12,fontWeight:700,color:"#c0a040"}}>${SKINS_POT}</div>{skins.length>0&&<div style={{fontSize:10,color:"#8a8060"}}>{skins.length} × ${parseFloat(val).toFixed(0)}</div>}</div>
+        </div>
+        {skins.length===0?<div style={{padding:"14px",textAlign:"center",color:C.textSoft,fontSize:12}}>No skins yet</div>
+          :skins.map((s,si)=>{const team=PLAYERS[s.player].team==="A"?TEAM_A:TEAM_B;return(
+            <div key={si} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 14px",borderTop:si>0?`1px solid ${C.border}`:"none"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:15,fontWeight:800,color:C.gold,minWidth:30}}>#{s.hole}</span>
+                <div><div style={{fontSize:13,fontWeight:700,color:team.color}}>{team.emoji} {PLAYERS[s.player].short}</div><div style={{fontSize:11,color:C.textSoft}}>Net {s.net} · Par {s.par}</div></div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:18}}>{s.net-s.par<=-2?"🦅":"🐦"}</span>
+                <span style={{fontSize:16,fontWeight:800,color:C.gold}}>${parseFloat(val).toFixed(0)}</span>
+              </div>
+            </div>
+          );})}
+      </div>
+    ))}
+  </>);
+}
+
+// ─── MONEY TAB ───────────────────────────────────────────────
+function MoneyTab({ledger,txns,totals}){
+  const [open,setOpen]=useState({});
+  const sorted=Object.entries(ledger).sort((a,b)=>b[1].total-a[1].total);
+  const rW=totals.A>=11?"A":totals.B>=11?"B":null;
+
+  return(<>
+    {/* Ryder Cup */}
+    <div className="card">
+      <div style={{padding:"14px",background:rW?(rW==="A"?C.greenBg:C.redBg):C.goldBg,borderBottom:`1px solid ${rW?(rW==="A"?C.greenBdr:C.redBdr):C.goldBdr}`,textAlign:"center"}}>
+        <div style={{fontSize:13,fontWeight:800,color:C.gold,letterSpacing:1}}>🏆 RYDER CUP TEAM BET</div>
+        {rW?<div style={{fontSize:16,fontWeight:900,color:rW==="A"?C.green:C.red,marginTop:4}}>{rW==="A"?TEAM_A.name:TEAM_B.name} wins +$100 each!</div>
+          :<div style={{fontSize:13,color:C.textSoft,marginTop:4}}>First team to 11 pts wins $100/player</div>}
+      </div>
+    </div>
+
+    {/* Player totals */}
+    <div className="card">
+      <div style={{padding:"12px 14px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:13,fontWeight:800,color:C.textMid}}>💵 Player Money Totals</div>
+        <div style={{fontSize:10,color:C.textSoft,marginTop:1}}>Tap to expand breakdown</div>
+      </div>
+      {sorted.map(([k,data],i)=>{
+        const team=PLAYERS[k].team==="A"?TEAM_A:TEAM_B;
+        const pos=data.total>=0;
+        const isOpen=open[k];
+        const byRound={};data.entries.forEach(e=>{if(!byRound[e.rl])byRound[e.rl]=[];byRound[e.rl].push(e);});
+        return(
+          <div key={k} style={{borderTop:i>0?`1px solid ${C.border}`:"none"}}>
+            <div onClick={()=>setOpen(prev=>({...prev,[k]:!prev[k]}))} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px",cursor:"pointer",background:i%2===0?C.card:C.cardAlt}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:16}}>{team.emoji}</span>
+                <div><div style={{fontSize:14,fontWeight:700}}>{PLAYERS[k].name}</div><div style={{fontSize:10,color:team.color,fontWeight:700}}>{team.short}</div></div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{fontSize:20,fontWeight:900,color:pos?C.green:C.red}}>{pos?"+":"-"}{$(data.total)}</div>
+                <span style={{fontSize:14,color:C.textSoft}}>{isOpen?"▲":"▼"}</span>
+              </div>
+            </div>
+            {isOpen&&<div style={{padding:"0 14px 14px",background:"#f8fcf8"}}>
+              {Object.entries(byRound).map(([rl,entries])=>{
+                const rTot=entries.reduce((s,e)=>s+e.amount,0);
+                return(<div key={rl} style={{marginBottom:10}}>
+                  <div style={{fontSize:10,fontWeight:800,color:C.textSoft,letterSpacing:1,padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>{rl.toUpperCase()}</div>
+                  {entries.map((e,ei)=>(
+                    <div key={ei} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                      <span style={{fontSize:12,color:C.textMid}}>{e.bet}</span>
+                      <span style={{fontSize:13,fontWeight:700,color:e.amount>=0?C.green:C.red}}>{e.amount>=0?"+":"-"}{$(e.amount)}</span>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",justifyContent:"space-between",padding:"4px 0"}}>
+                    <span style={{fontSize:11,color:C.textSoft,fontWeight:700}}>Round total</span>
+                    <span style={{fontSize:13,fontWeight:800,color:rTot>=0?C.green:C.red}}>{rTot>=0?"+":"-"}{$(rTot)}</span>
+                  </div>
+                </div>);
+              })}
+            </div>}
+          </div>
+        );
+      })}
+    </div>
+
+    {/* Settlement */}
+    <div className="card">
+      <div style={{padding:"12px 14px",background:C.hdr}}>
+        <div style={{fontSize:14,fontWeight:800,color:"#c0a040"}}>📲 Venmo Settlement</div>
+        <div style={{fontSize:11,color:"#8a8060",marginTop:1}}>Minimum transactions to settle all debts</div>
+      </div>
+      {txns.length===0?<div style={{padding:"20px",textAlign:"center",color:C.textSoft,fontSize:13}}>All even — nothing to settle yet</div>
+        :txns.map((t,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px",borderTop:i>0?`1px solid ${C.border}`:"none",background:i%2===0?C.card:C.cardAlt}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:13,fontWeight:800,color:C.red}}>{PLAYERS[t.from]?.short}</div>
+                <div style={{fontSize:10,color:C.textSoft}}>pays</div>
+              </div>
+              <div style={{fontSize:22,color:C.textSoft}}>→</div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:13,fontWeight:800,color:C.green}}>{PLAYERS[t.to]?.short}</div>
+                <div style={{fontSize:10,color:C.textSoft}}>receives</div>
+              </div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:20,fontWeight:900,color:C.gold}}>${t.amount.toFixed(2)}</div>
+              <div style={{fontSize:10,color:C.textSoft}}>Venmo 📲</div>
+            </div>
+          </div>
+        ))}
+    </div>
+
+    {/* Team summary */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      {[TEAM_A,TEAM_B].map((team,ti)=>{
+        const keys=ti===0?A_KEYS:B_KEYS;
+        const tot=keys.reduce((s,k)=>s+(ledger[k]?.total||0),0);
+        return(<div key={team.name} className="card" style={{margin:0,padding:"14px",textAlign:"center",border:`2px solid ${team.color}`}}>
+          <div style={{fontSize:14,fontWeight:800,color:team.color}}>{team.emoji} {team.short}</div>
+          <div style={{fontSize:24,fontWeight:900,color:tot>=0?C.green:C.red,marginTop:4}}>{tot>=0?"+":"-"}{$(tot)}</div>
+          <div style={{fontSize:10,color:C.textSoft,marginTop:2}}>team total</div>
+        </div>);
+      })}
+    </div>
+  </>);
+}
+
+// ─── INFO TAB ────────────────────────────────────────────────
+function InfoTab({r3P}){
+  const aKeys=A_KEYS,bKeys=B_KEYS;
+  const all=Object.entries(PLAYERS).sort((a,b)=>a[1].hcp-b[1].hcp);
+  const courses=[
+    {r:"Round 1",c:"Wildfire Golf Club — Faldo Course",l:"Phoenix, AZ",p:71},
+    {r:"Rounds 2 & 3",c:"We-Ko-Pa Golf Club — Saguaro",l:"Fort McDowell, AZ",p:71},
+    {r:"Rounds 4 & 5",c:"Grayhawk Golf Club — Raptor",l:"Scottsdale, AZ",p:72},
+  ];
+  const pairings=[
+    {round:"R1 · Wildfire — 2v2",mids:["r1m1","r1m2"]},
+    {round:"R2 · We-Ko-Pa — 2v2",mids:["r2m1","r2m2"]},
+    {round:"R4 · Grayhawk — Singles",mids:["r4m1","r4m2","r4m3","r4m4"]},
+    {round:"R5 · Grayhawk — Singles",mids:["r5m1","r5m2","r5m3","r5m4"]},
+  ];
+
+  return(<>
+    {/* Teams */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+      {[{team:TEAM_A,keys:aKeys},{team:TEAM_B,keys:bKeys}].map(({team,keys})=>(
+        <div key={team.name} className="card" style={{margin:0,border:`2px solid ${team.color}`}}>
+          <div style={{padding:"10px",background:team.bg,borderBottom:`2px solid ${team.color}`,textAlign:"center"}}>
+            <div style={{fontSize:24}}>{team.emoji}</div>
+            <div style={{fontSize:11,fontWeight:800,color:team.color,marginTop:2}}>{team.name}</div>
+            <div style={{fontSize:10,color:C.textSoft}}>avg hcp {(keys.reduce((s,k)=>s+PLAYERS[k].hcp,0)/keys.length).toFixed(1)}</div>
+          </div>
+          {keys.map(k=>(
+            <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>
+              <span style={{fontSize:13,fontWeight:700}}>{PLAYERS[k].name}</span>
+              <span style={{fontSize:13,fontWeight:700,color:team.color}}>{PLAYERS[k].hcp}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+
+    {/* R3 Pairings */}
+    <div className="card">
+      <div style={{padding:"12px 14px",background:C.goldBg,borderBottom:`1px solid ${C.goldBdr}`}}>
+        <div style={{fontSize:13,fontWeight:800,color:C.gold}}>Round 3 Pairings</div>
+      </div>
+      {R3M.map(m=>{
+        const p=getP(m.id,r3P);
+        const aStr=p?.sideA?.length?p.sideA.map(k=>`${PLAYERS[k].short}(${PLAYERS[k].hcp})`).join(" & "):"TBD";
+        const bStr=p?.sideB?.length?p.sideB.map(k=>`${PLAYERS[k].short}(${PLAYERS[k].hcp})`).join(" & "):"TBD";
+        return(<div key={m.id} style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontSize:11,fontWeight:800,color:C.gold,marginBottom:5}}>{m.label}</div>
+          <div style={{fontSize:13,fontWeight:700,color:C.green}}>{TEAM_A.emoji} {aStr}</div>
+          <div style={{fontSize:12,color:C.textSoft,margin:"2px 0"}}>vs</div>
+          <div style={{fontSize:13,fontWeight:700,color:C.red}}>{TEAM_B.emoji} {bStr}</div>
+        </div>);
+      })}
+    </div>
+
+    {/* Static pairings */}
+    <div className="card">
+      <div style={{padding:"12px 14px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:13,fontWeight:800,color:C.textMid}}>All Match Pairings</div>
+      </div>
+      {pairings.map((row,ri)=>(
+        <div key={ri} style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontSize:11,fontWeight:800,color:C.textSoft,letterSpacing:1,marginBottom:6}}>{row.round.toUpperCase()}</div>
+          {row.mids.map(mid=>{const p2=STATIC_P[mid];if(!p2||p2.type==="bonus")return null;return(
+            <div key={mid} style={{marginBottom:6,padding:"8px 10px",background:C.cardAlt,borderRadius:8}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.green}}>{TEAM_A.emoji} {p2.sideA.map(k=>`${PLAYERS[k].short}(${PLAYERS[k].hcp})`).join(" & ")}</div>
+              <div style={{fontSize:11,color:C.textSoft,margin:"1px 0"}}>vs</div>
+              <div style={{fontSize:12,fontWeight:700,color:C.red}}>{TEAM_B.emoji} {p2.sideB.map(k=>`${PLAYERS[k].short}(${PLAYERS[k].hcp})`).join(" & ")}</div>
+            </div>
+          );})}
+        </div>
+      ))}
+    </div>
+
+    {/* Courses */}
+    <div className="card">
+      <div style={{padding:"12px 14px",background:C.hdr,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:13,fontWeight:800,color:C.hdrText}}>Course Schedule</div>
+      </div>
+      {courses.map((row,i)=>(
+        <div key={i} style={{padding:"12px 14px",borderBottom:i<courses.length-1?`1px solid ${C.border}`:"none",background:i%2===0?C.card:C.cardAlt}}>
+          <div style={{fontSize:10,fontWeight:800,color:C.textSoft,marginBottom:2}}>{row.r}</div>
+          <div style={{fontSize:14,fontWeight:700}}>{row.c}</div>
+          <div style={{fontSize:11,color:C.textSoft,marginTop:1}}>{row.l} · Par {row.p}</div>
+        </div>
+      ))}
+    </div>
+
+    {/* Handicap list */}
+    <div className="card">
+      <div style={{padding:"12px 14px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:13,fontWeight:800,color:C.textMid}}>All Players by Handicap</div>
+      </div>
+      {all.map(([k,p],i)=>{const team=p.team==="A"?TEAM_A:TEAM_B;return(
+        <div key={k} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 14px",borderBottom:i<all.length-1?`1px solid ${C.border}`:"none",background:i%2===0?C.card:C.cardAlt}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:11,fontWeight:800,color:C.textSoft,minWidth:22}}>#{i+1}</span>
+            <span style={{fontSize:16}}>{team.emoji}</span>
+            <span style={{fontSize:14,fontWeight:700}}>{p.name}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:11,fontWeight:700,color:team.color}}>{team.short}</span>
+            <span style={{fontSize:15,fontWeight:800,minWidth:30,textAlign:"right"}}>{p.hcp}</span>
+          </div>
+        </div>
+      );})}
+    </div>
+  </>);
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
